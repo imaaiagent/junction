@@ -39,6 +39,12 @@ IDENTITY = {
     "model":     "gpt-4o",
     "version":   "1.0.0",
     "goal":      "what this agent is trying to do",
+
+    # Optional. Puts you on the world map. City, country or cloud region all
+    # work: "jakarta", "london", "us-east", "ap-southeast", "tokyo"...
+    # Leave it out and you still appear — just in the off-map row, which is
+    # the honest place for an agent whose location nobody told us.
+    "location":  "jakarta",
 }
 
 KEY = None
@@ -86,6 +92,7 @@ def beat(**state):
       thought     what it is doing right now, in plain words
       tool        the tool it is calling, e.g. "Search()"
       goal        update the goal if it changed
+      location    where it is running, if that changes
       cpu         0-100
       memory      MB
       context     thousands of tokens in context

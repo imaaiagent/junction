@@ -174,6 +174,43 @@
   .st.idle{color:var(--dim)}
   .st.failed{color:var(--red)}
 
+  /* ── world map ─────────────────────────────────────────────── */
+  .worldmap{
+    font-family:var(--fa);white-space:pre;margin:0;
+    font-size:clamp(6px,1vw,11px);line-height:1.05;letter-spacing:0;
+  }
+  .worldmap .land{color:var(--line)}
+  .worldmap .pin{
+    font-weight:700;
+    text-shadow:0 0 7px currentColor;
+  }
+  .pin.s-online    {color:var(--mid)}
+  .pin.s-thinking  {color:var(--cyan)}
+  .pin.s-executing {color:var(--amb)}
+  .pin.s-idle      {color:var(--dim)}
+  .pin.s-failed    {color:var(--red)}
+  .pin.hot{
+    color:var(--grn-hot);
+    text-shadow:0 0 12px var(--grn),0 0 22px rgba(106,255,106,.6);
+    animation:pinFlare .9s ease-out;
+  }
+  @keyframes pinFlare{
+    0%  {transform:scale(1.5);filter:brightness(1.8)}
+    100%{transform:scale(1);  filter:none}
+  }
+
+  /* agents that reported no usable location — still real, just unplaceable */
+  .offmap{
+    display:flex;flex-wrap:wrap;gap:5px 12px;align-items:center;
+    margin-top:8px;padding-top:7px;border-top:1px solid var(--line);
+    font-size:10px;
+  }
+  .offmap .ol{color:var(--line-2);letter-spacing:.14em;text-transform:uppercase}
+  .offmap .ou{color:var(--dim);white-space:nowrap}
+  .offmap .ou.s-thinking{color:var(--cyan)}
+  .offmap .ou.s-executing{color:var(--amb)}
+  .offmap .ou.s-failed{color:var(--red)}
+
   /* ── the map: every unit gets a body ───────────────────────── */
   #map{padding:10px 9px}
   .map-empty{color:var(--line-2);font-size:11px;line-height:1.8;padding:8px 0}
@@ -345,7 +382,11 @@
 
     <!-- ── CENTER ── -->
     <div class="col">
-      <div class="pane" style="flex:1.4">
+      <div class="pane" style="flex:0 0 auto">
+        <div class="ph"><span>world map</span><span class="n" id="mapStat">—</span></div>
+        <div class="pb" id="world" style="padding:10px 12px"></div>
+      </div>
+      <div class="pane" style="flex:1">
         <div class="ph"><span>live world feed</span><span class="n"><span id="eps">0</span> ev/s</span></div>
         <div class="pb" id="feed"></div>
       </div>
@@ -565,6 +606,136 @@ function renderAgents(){
   });
 }
 
+/* ════════════════════════════════════════════════════════════
+   THE WORLD MAP
+
+   Agents appear where they SAY they are. Location is self-reported through
+   the `location` field — we never infer it from an IP address, because a
+   hosted agent's IP is this server, not its owner's, and a map full of
+   confidently wrong dots is worse than one that admits what it doesn't know.
+
+   Anything unplaceable lands in the OFF-MAP row underneath, counted and
+   labelled. An agent with no location is still a real agent; it just isn't
+   somewhere we can draw.
+   ════════════════════════════════════════════════════════════ */
+
+const MAP_ART = [
+  "                                                                    ",
+  "        ▄▄▄▄▄▄                          ▄▄▄▄▄▄▄▄▄▄▄▄                ",
+  "     ▄▄████████▄▄                   ▄▄████████████████▄▄▄           ",
+  "   ▄████████████▀                 ▄███████████████████████▄▄        ",
+  "  ████████████▀                  ████████████████████████████▄      ",
+  "   ▀██████████                  ▐██████▀▀   ▀████████████████▀      ",
+  "     ▀███████▌                   ▀████▌       ▀██████████▀▀         ",
+  "       ▀████▌                      ▀██▘         ▀▀████▀             ",
+  "         ▐██▖                    ▗▄▄▄▖             ▐██▌             ",
+  "          ▐█▌                   ▐█████▌             ▀▀              ",
+  "          ▐█▌                   ▐█████▌                             ",
+  "          ▝█▌                    ▀███▀            ▗▄▄▖              ",
+  "           ▀                      ▐█▌           ▗█████▖             ",
+  "                                  ▝█▘           ▐██████▌            ",
+  "                                                 ▀█████▘            ",
+  "                                                   ▀▀               ",
+];
+
+/* Known places -> [row, col] on the art above. Aliases share coordinates so
+   "sg", "singapore" and "ap-southeast-1" all land in the same spot. */
+const PLACES = {
+  'san-francisco':[5,6], 'sf':[5,6], 'us-west':[5,6], 'seattle':[4,6],
+  'mexico-city':[7,10], 'mx':[7,10],
+  'toronto':[4,14], 'ca':[4,14],
+  'new-york':[5,15], 'nyc':[5,15], 'us-east':[5,15], 'usa':[5,14], 'us':[5,14],
+  'sao-paulo':[11,20], 'brazil':[11,20], 'br':[11,20],
+  'london':[4,30], 'uk':[4,30], 'eu-west':[4,30],
+  'paris':[4,31], 'fr':[4,31],
+  'berlin':[4,33], 'de':[4,33], 'germany':[4,33], 'eu-central':[4,33],
+  'lagos':[9,32], 'nigeria':[9,32],
+  'johannesburg':[12,35], 'south-africa':[12,35], 'za':[12,35],
+  'cairo':[7,36], 'egypt':[7,36],
+  'dubai':[7,39], 'uae':[7,39], 'me-south':[7,39],
+  'mumbai':[8,43], 'india':[8,43], 'in':[8,43], 'ap-south':[8,43],
+  'singapore':[10,45], 'sg':[10,45], 'ap-southeast':[10,45],
+  'jakarta':[10,46], 'indonesia':[10,46], 'id':[10,46],
+  'sydney':[13,55], 'australia':[13,55], 'au':[13,55],
+  'tokyo':[6,56], 'japan':[6,56], 'jp':[6,56], 'ap-northeast':[6,56],
+  'seoul':[5,55], 'kr':[5,55],
+  'beijing':[5,52], 'china':[5,52], 'cn':[5,52], 'shanghai':[6,53],
+};
+
+const STATUS_DOT = {
+  online:'●', thinking:'◆', executing:'▲', idle:'○', failed:'✕',
+};
+
+function placeOf(loc){
+  if(!loc) return null;
+  const k = String(loc).toLowerCase().trim().replace(/[\s_]+/g,'-');
+  if(PLACES[k]) return PLACES[k];
+  // tolerate "jakarta, id" / "aws:ap-south-1" style values
+  for(const key of Object.keys(PLACES)){
+    if(k.startsWith(key) || k.includes(key)) return PLACES[key];
+  }
+  return null;
+}
+
+function renderWorld(){
+  const host = $('world');
+  if(!host) return;
+
+  const grid = MAP_ART.map(r => r.split(''));
+  const H = grid.length, W = grid[0].length;
+
+  const placed = [];
+  const offmap = [];
+
+  AG.forEach(a => {
+    const p = placeOf(a.loc);
+    if(p) placed.push({ a, r:p[0], c:p[1] });
+    else  offmap.push(a);
+  });
+
+  // stack agents that share a cell so they don't overwrite each other
+  const cell = new Map();
+  placed.forEach(({a,r,c}) => {
+    const key = r + ':' + c;
+    if(!cell.has(key)) cell.set(key, []);
+    cell.get(key).push(a);
+  });
+
+  const live = EV[0] ? EV[0].a : null;
+  let out = grid.map(r => r.map(ch => `<span class="land">${ch}</span>`));
+
+  for(const [key, list] of cell){
+    const [r, c] = key.split(':').map(Number);
+    if(r < 0 || r >= H || c < 0 || c >= W) continue;
+
+    const top = list[0];
+    const hot = list.some(x => x.name === live);
+    const dot = list.length > 1 ? String(Math.min(9, list.length))
+                                : (STATUS_DOT[top.status] || '●');
+    const names = list.map(x => `${x.name} (${x.status})`).join(', ');
+
+    out[r][c] =
+      `<span class="pin s-${esc(top.status)}${hot ? ' hot' : ''}" ` +
+      `title="${esc(names)} — ${esc(top.loc)}">${dot}</span>`;
+  }
+
+  host.innerHTML =
+    `<pre class="worldmap">${out.map(r => r.join('')).join('\n')}</pre>` +
+    (offmap.length
+      ? `<div class="offmap"><span class="ol">off-map</span>` +
+        offmap.slice(0,8).map(a =>
+          `<span class="ou s-${esc(a.status)}" title="${esc(a.name)} — no location reported">` +
+          `${STATUS_DOT[a.status] || '●'} ${esc(a.name)}</span>`).join('') +
+        (offmap.length > 8 ? `<span class="ou">+${offmap.length-8} more</span>` : '') +
+        `</div>`
+      : '');
+
+  const n = placed.length;
+  $('mapStat').textContent = AG.length === 0
+    ? 'nobody connected'
+    : `${n} placed · ${offmap.length} off-map`;
+}
+
 function renderFeed(){
   $('feed').innerHTML = EV.slice(0,60).map((e,i)=>`
     <div class="ev ${e.k} ${i===0?'new':''}">
@@ -752,7 +923,7 @@ function renderInc(){
 }
 
 function renderAll(){
-  renderOverview(); renderAgents(); renderFeed();
+  renderOverview(); renderAgents(); renderWorld(); renderFeed();
   renderThink(); renderTel(); renderMap(); renderInc();
 }
 

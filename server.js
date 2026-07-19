@@ -257,6 +257,12 @@ function handleRegister(req, res, ip){
       ver:    s(p.version, 12)   || '0.0.1',
       goal:   s(p.goal, 120)     || 'no goal set',
 
+      // Where the agent says it is. Optional and self-reported: we never
+      // guess it from an IP, because a hosted agent's IP is OUR server, not
+      // its owner's, and a map full of confidently wrong dots is worse than
+      // a map that admits what it doesn't know.
+      loc:    s(p.location, 24).toLowerCase(),
+
       status: 'online',
       thought: '', tool: '—', last: '—',
       conf: 0, cpu: 0, mem: 0, ctx: 0, depth: 0,
@@ -311,6 +317,7 @@ function handleHeartbeat(req, res){
 
     if(p.status  !== undefined) a.status  = status(p.status);
     if(p.goal    !== undefined) a.goal    = s(p.goal, 120) || a.goal;
+    if(p.location!== undefined) a.loc     = s(p.location, 24).toLowerCase();
     if(p.thought !== undefined) a.thought = s(p.thought, 120);
     if(p.tool    !== undefined) a.tool    = s(p.tool, 30) || '—';
     if(p.model   !== undefined) a.model   = s(p.model, 24) || a.model;
@@ -395,6 +402,7 @@ function handleWorld(req, res){
     ver: a.ver,
     status: (now - a.lastSeen > LIVE_CFG.STALE_MS) ? 'idle' : a.status,
     goal: a.goal,
+    loc: a.loc || '',
     thought: a.thought,
     tool: a.tool,
     last: a.last,
@@ -650,6 +658,10 @@ function handleDeploy(req, res, ip){
       model:  HOST_CFG.MODEL,
       ver:    '1.0.0',
       goal,
+      // Hosted agents run HERE, on this server — not wherever their owner is
+      // sitting. Say so plainly rather than scattering them across the map
+      // as if they were distributed.
+      loc:    envStr('HOST_LOCATION', 'server'),
       status: 'online', thought: 'booting', tool: '—', last: '—',
       conf: 0, cpu: 0, mem: 0, ctx: 0, depth: 1,
       tokens: 0, toolsUsed: 0, ok: 100, fails: 0,
