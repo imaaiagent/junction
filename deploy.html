@@ -55,6 +55,16 @@
   .keyfield{border:1px solid var(--line-2);background:var(--bg-2);padding:14px;margin-bottom:8px}
   .keyfield input{background:var(--bg);border-color:var(--line-2)}
   .freebox{border:1px solid var(--line-2);background:var(--bg-2);padding:14px;margin-bottom:8px}
+  /* explains WHY the key field is or isn't showing — never leave that a mystery */
+  .modenote{
+    border:1px solid var(--amb);background:rgba(30,20,0,.35);
+    padding:12px 14px;margin-bottom:18px;
+    font-size:11px;line-height:1.7;color:var(--dim);
+  }
+  .modenote b{color:var(--amb)}
+  .modenote .hl{color:var(--wht);background:rgba(255,255,255,.06);padding:1px 5px}
+  .modenote.bad{border-color:var(--red)}
+  .modenote.bad b{color:var(--red)}
   .fb-t{color:var(--grn);font-size:12px;letter-spacing:.06em;margin-bottom:6px}
   .fb-d{font-size:11px;color:var(--dim);line-height:1.7}
   .fb-d b{color:var(--grn)}
@@ -157,6 +167,8 @@
           <textarea id="goal" maxlength="120" placeholder="map the supplier network for tier-2 exposure"></textarea>
         </div>
 
+        <div class="modenote" id="modeNote" style="display:none"></div>
+
         <div class="field" id="keyWrap">
           <label for="key">Anthropic API key</label>
           <div class="hint">Starts with <b style="color:var(--mid)">sk-ant-</b> — get one at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>. This is what pays for the agent's thinking.</div>
@@ -211,10 +223,13 @@ let freeMode = false;
 
 /* find out who's paying before showing the form the wrong way round */
 (async function checkMode(){
+  const banner = $('modeNote');
   try{
-    const r = await fetch('/api/deploy-mode');
+    const r = await fetch('/api/deploy-mode', { cache:'no-store' });
+    if(!r.ok) throw new Error('http ' + r.status);
     const d = await r.json();
     freeMode = !!d.free;
+
     if(freeMode){
       $('keyWrap').style.display = 'none';       // no key needed
       $('freeBox').style.display = 'block';
@@ -222,8 +237,23 @@ let freeMode = false;
       if(typeof d.remaining_today === 'number'){
         $('freeLeft').textContent = `${d.remaining_today} free deployments left today.`;
       }
+    }else{
+      // Say WHY the key field is here. Silently showing it looks like a bug
+      // to anyone who was told deployment is free.
+      banner.style.display = 'block';
+      banner.innerHTML =
+        '<b>bring-your-own-key mode.</b> the server has no key configured, ' +
+        'so each deployment runs on yours. if this should be free, ' +
+        '<span class="hl">NEVO_HOST_KEY</span> is missing from the server environment.';
     }
-  }catch(_){ /* default to BYOK, which is the safe assumption */ }
+  }catch(e){
+    // Couldn't ask the server at all — don't quietly pretend we know the mode.
+    banner.style.display = 'block';
+    banner.className = 'modenote bad';
+    banner.innerHTML =
+      '<b>could not reach the server.</b> falling back to bring-your-own-key. ' +
+      'if the board is down, deployment will fail too.';
+  }
 })();
 
 function showErr(msg){
