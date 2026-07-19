@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JUNCTION // TRAFFIC</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:      #000000;
+    --bg-1:    #060906;
+    --bg-2:    #0c130c;
+    --line:    #1c3f1c;
+    --line-2:  #2d6b2d;
+    --dim:     #4d8f4d;
+    --mid:     #7fd47f;
+    --grn:     #6aff6a;
+    --grn-hot: #b6ffb6;
+    --wht:     #eaffea;
+    --amb:     #ffb347;
+    --red:     #ff5555;
+    --cyan:    #5affff;
+    --f: "JetBrains Mono","SFMono-Regular",ui-monospace,"DejaVu Sans Mono",Menlo,Consolas,monospace;
+    --fa: ui-monospace,"DejaVu Sans Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg);
+    color:var(--mid);
+    font-family:var(--f);
+    font-size:12px;
+    line-height:1.45;
+    overflow:hidden;
+    -webkit-font-smoothing:none;
+  }
+  /* CRT scanlines — subtle. if you can read it, it's too strong.
+     NOTE: no mix-blend-mode here. `multiply` multiplies the text colour too,
+     which crushed the whole UI to near-black. A low-alpha overlay gives the
+     same texture without eating the content. */
+  body::after{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:9998;
+    background:repeating-linear-gradient(0deg,
+      rgba(0,0,0,0) 0 2px, rgba(0,0,0,.14) 2px 3px);
+  }
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:9997;
+    background:radial-gradient(ellipse 120% 100% at 50% 50%, transparent 70%, rgba(0,0,0,.35));
+  }
+  ::selection{background:var(--grn);color:#000}
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:var(--bg-1)}
+  ::-webkit-scrollbar-thumb{background:var(--line-2)}
+  ::-webkit-scrollbar-thumb:hover{background:var(--dim)}
+
+  /* ══ BOOT ═══════════════════════════════════════════════ */
+  #boot{
+    position:fixed;inset:0;z-index:9999;background:#000;
+    display:flex;flex-direction:column;justify-content:center;
+    padding:0 8vw;overflow:hidden;
+  }
+  #bootlog{font-size:12px;line-height:1.9;color:var(--mid);white-space:pre}
+  #bootlog .ok{color:var(--grn)}
+  #bootlog .w{color:var(--wht)}
+  #bootbanner{
+    font-family:var(--fa);white-space:pre;color:var(--grn);
+    font-size:clamp(6px,1.5vw,13px);line-height:1.15;font-weight:700;
+    margin:26px 0 14px;opacity:0;
+    text-shadow:0 0 12px rgba(106,255,106,.5);
+  }
+  #bootbanner.on{animation:bIn .5s steps(3) forwards}
+  @keyframes bIn{to{opacity:1}}
+  #boot.gone{opacity:0;visibility:hidden;transition:opacity .5s,visibility .5s}
+
+  /* ══ LAYOUT ═════════════════════════════════════════════ */
+  #os{display:none;height:100vh;flex-direction:column}
+  #os.on{display:flex}
+
+  .bar{
+    display:flex;justify-content:space-between;align-items:center;
+    border-bottom:1px solid var(--line);background:var(--bg-1);
+    padding:5px 10px;font-size:10px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--dim);flex-shrink:0;
+  }
+  .bar b{color:var(--grn);font-weight:400}
+  .bar .sim{
+    color:var(--amb);border:1px solid var(--amb);
+    padding:1px 7px;letter-spacing:.14em;
+  }
+  /* the way in. it should be the one thing on this bar you can click. */
+  .bar .join{
+    color:var(--grn);border:1px solid var(--line-2);
+    padding:1px 8px;letter-spacing:.1em;text-decoration:none;
+    transition:.15s;
+  }
+  .bar .join:hover{background:var(--bg-2);border-color:var(--grn);color:var(--grn-hot)}
+  .bar .rt{display:flex;gap:16px;align-items:center}
+  .blip{color:var(--grn);animation:blip 1s steps(1) infinite}
+  @keyframes blip{50%{opacity:.15}}
+
+  .grid{
+    flex:1;display:grid;
+    grid-template-columns:230px 1fr 290px;
+    min-height:0;
+  }
+  .col{display:flex;flex-direction:column;min-height:0;min-width:0}
+  .col.l{border-right:1px solid var(--line)}
+  .col.r{border-left:1px solid var(--line)}
+
+  .pane{display:flex;flex-direction:column;min-height:0;border-bottom:1px solid var(--line)}
+  .pane:last-child{border-bottom:0}
+  .ph{
+    display:flex;justify-content:space-between;
+    padding:4px 9px;background:var(--bg-2);
+    border-bottom:1px solid var(--line);
+    font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--dim);flex-shrink:0;
+  }
+  .ph .n{color:var(--line-2)}
+  .pb{overflow-y:auto;padding:7px 9px;flex:1;min-height:0}
+
+  /* ── metrics ── */
+  .m{display:flex;justify-content:space-between;gap:8px;padding:1px 0;font-size:11px;white-space:nowrap}
+  .m .k{color:var(--dim);overflow:hidden;text-overflow:ellipsis}
+  .m .v{color:var(--grn);font-variant-numeric:tabular-nums;flex-shrink:0}
+  .m .v.w{color:var(--wht)}
+  .m .v.a{color:var(--amb)}
+  .m .v.r{color:var(--red)}
+  .m .v.c{color:var(--cyan)}
+  .sep{border-top:1px solid var(--line);margin:6px 0}
+  .lbl{color:var(--line-2);font-size:9px;letter-spacing:.14em;text-transform:uppercase;margin:8px 0 3px}
+  .lbl:first-child{margin-top:0}
+
+  /* sparkline */
+  .spark{font-family:var(--fa);color:var(--dim);font-size:11px;letter-spacing:-1px;white-space:pre;overflow:hidden}
+
+  /* ── feed ── */
+  #feed{font-size:11px;line-height:1.7}
+  .ev{display:flex;gap:8px;white-space:nowrap;overflow:hidden}
+  .ev .t{color:var(--line-2);flex-shrink:0}
+  .ev .a{color:var(--wht);flex-shrink:0}
+  .ev .x{overflow:hidden;text-overflow:ellipsis}
+  .ev.info .x{color:var(--mid)}
+  .ev.ok   .x{color:var(--grn)}
+  .ev.warn .x{color:var(--amb)}
+  .ev.err  .x{color:var(--red)}
+  .ev.tool .x{color:var(--cyan)}
+  .ev.new{animation:evIn .25s ease}
+  @keyframes evIn{from{opacity:0;transform:translateX(-4px)}}
+
+  /* ── thought stream ── */
+  #think{font-size:11px;line-height:1.65}
+  .th{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .th b{color:var(--wht);font-weight:400}
+  .th .arw{color:var(--line-2)}
+  .th.hot{color:var(--grn)}
+
+  /* ── agent list ── */
+  .ag{
+    display:flex;justify-content:space-between;gap:6px;
+    padding:2px 4px;cursor:pointer;white-space:nowrap;
+    border-left:2px solid transparent;
+  }
+  .ag:hover{background:var(--bg-2)}
+  .ag.sel{background:var(--bg-2);border-left-color:var(--grn)}
+  .ag .nm{color:var(--wht);overflow:hidden;text-overflow:ellipsis}
+  .ag .st{font-size:9px;flex-shrink:0;letter-spacing:.06em}
+  .st.online{color:var(--grn)}
+  .st.thinking{color:var(--cyan)}
+  .st.executing{color:var(--amb)}
+  .st.idle{color:var(--dim)}
+  .st.failed{color:var(--red)}
+
+  /* ── the map: every unit gets a body ───────────────────────── */
+  #map{padding:10px 9px}
+  .map-empty{color:var(--line-2);font-size:11px;line-height:1.8;padding:8px 0}
+  .map-grid{
+    display:flex;flex-wrap:wrap;gap:14px 16px;align-items:flex-start;
+  }
+  .unit{
+    cursor:pointer;text-align:center;flex:0 0 auto;
+    padding:4px 5px;border:1px solid transparent;
+    transition:border-color .15s, transform .15s;
+  }
+  .unit:hover{border-color:var(--line-2);transform:translateY(-1px)}
+  .unit .body{
+    font-family:var(--fa);white-space:pre;margin:0;
+    font-size:13px;line-height:1.15;
+    color:var(--mid);
+  }
+  .unit .tagline{
+    font-size:9px;letter-spacing:.04em;color:var(--wht);
+    margin-top:3px;max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .unit .tagline .mk{color:var(--dim)}
+  .unit .meta{font-size:8px;color:var(--line-2);letter-spacing:.02em}
+
+  /* workers are smaller — hierarchy without drawing a single line */
+  .unit.worker .body{font-size:10px;color:var(--dim)}
+  .unit.worker .tagline{font-size:8px;color:var(--dim)}
+
+  /* status colours the body, so the board reads at a glance */
+  .unit.st-thinking  .body{color:var(--cyan);text-shadow:0 0 8px rgba(90,255,255,.35)}
+  .unit.st-executing .body{color:var(--amb); text-shadow:0 0 8px rgba(255,179,71,.35)}
+  .unit.st-failed    .body{color:var(--red); text-shadow:0 0 8px rgba(255,85,85,.4)}
+  .unit.st-idle      .body{color:var(--line-2)}
+  .unit.st-thinking  .tagline .mk{color:var(--cyan)}
+  .unit.st-executing .tagline .mk{color:var(--amb)}
+  .unit.st-failed    .tagline .mk{color:var(--red)}
+
+  /* the unit that just did something flares */
+  .unit.pulse .body{
+    color:var(--grn-hot);
+    text-shadow:0 0 14px rgba(106,255,106,.7);
+    animation:unitPulse .9s ease-out;
+  }
+  @keyframes unitPulse{
+    0%  {transform:scale(1.12);filter:brightness(1.6)}
+    100%{transform:scale(1);   filter:none}
+  }
+
+  /* stale = heartbeat missed. it's still listed, but it's fading. */
+  .unit.stale{opacity:.4}
+  .unit.stale .body{animation:fadeBlink 2.4s steps(1) infinite}
+  @keyframes fadeBlink{50%{opacity:.45}}
+
+  /* ── incidents ── */
+  .inc{display:flex;gap:7px;white-space:nowrap;overflow:hidden;font-size:11px}
+  .inc .lv{flex-shrink:0;font-size:9px;letter-spacing:.08em;width:52px}
+  .inc .msg{overflow:hidden;text-overflow:ellipsis;color:var(--mid)}
+  .lv.WARNING{color:var(--amb)}
+  .lv.ERROR{color:var(--red)}
+  .lv.NOTICE{color:var(--cyan)}
+  .lv.SUCCESS{color:var(--grn)}
+
+  /* ── terminal ── */
+  #term{
+    border-top:1px solid var(--line);background:var(--bg-1);
+    display:flex;flex-direction:column;flex-shrink:0;
+    height:172px;
+  }
+  #tout{
+    flex:1;overflow-y:auto;padding:7px 10px;
+    font-size:11px;line-height:1.6;white-space:pre-wrap;word-break:break-word;
+  }
+  #tout .cmd{color:var(--wht)}
+  #tout .cmd .p{color:var(--grn)}
+  #tout .out{color:var(--mid)}
+  #tout .err{color:var(--red)}
+  #tout .ok{color:var(--grn)}
+  #tout .hi{color:var(--wht)}
+  #tin{
+    display:flex;gap:7px;align-items:center;
+    border-top:1px solid var(--line);padding:6px 10px;flex-shrink:0;
+  }
+  #tin .p{color:var(--grn);flex-shrink:0}
+  #tin input{
+    flex:1;background:transparent;border:0;outline:0;
+    color:var(--wht);font-family:inherit;font-size:12px;
+    caret-color:transparent;
+  }
+  #cur{
+    width:7px;height:14px;background:var(--grn);flex-shrink:0;
+    animation:cur 1s steps(1) infinite;box-shadow:0 0 6px var(--grn);
+  }
+  @keyframes cur{50%{opacity:0}}
+
+  /* ── palette ── */
+  #pal{
+    position:fixed;inset:0;z-index:500;display:none;
+    background:rgba(0,0,0,.8);padding-top:14vh;
+  }
+  #pal.on{display:block}
+  .pw{
+    max-width:520px;margin:0 auto;
+    border:1px solid var(--line-2);background:var(--bg-1);
+  }
+  #pq{
+    width:100%;background:var(--bg-2);border:0;border-bottom:1px solid var(--line);
+    outline:0;color:var(--wht);font-family:inherit;font-size:13px;padding:11px 13px;
+  }
+  #pr{max-height:320px;overflow-y:auto}
+  .pi{padding:6px 13px;cursor:pointer;display:flex;justify-content:space-between;gap:10px;white-space:nowrap}
+  .pi:hover,.pi.on{background:var(--bg-2)}
+  .pi .a{color:var(--wht);overflow:hidden;text-overflow:ellipsis}
+  .pi .b{color:var(--line-2);font-size:10px;flex-shrink:0}
+
+  @media(max-width:900px){
+    .grid{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+    .col.l,.col.r{border:0;border-bottom:1px solid var(--line)}
+    .col.l .pane:nth-child(n+3){display:none}
+    .col.r .pane:nth-child(n+2){display:none}
+    .pb{max-height:150px}
+    #term{height:150px}
+  }
+</style>
+</head>
+<body>
+
+<!-- ══ BOOT ══════════════════════════════════════════════ -->
+<div id="boot">
+  <div id="bootlog"></div>
+  <pre id="bootbanner">    ││ ││  ││ ││  ││  ││││  ││││││ ││││││  ││││  ││  ││
+    ││ ││  ││ │││ ││ ││  ││   ││     ││   ││  ││ │││ ││
+    ││ ││  ││ ││││││ ││       ││     ││   ││  ││ ││││││
+││  ││ ││  ││ ││ │││ ││  ││   ││     ││   ││  ││ ││ │││
+ ││││   ││││  ││  ││  ││││    ││   ││││││  ││││  ││  ││
+▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁</pre>
+</div>
+
+<!-- ══ OS ════════════════════════════════════════════════ -->
+<div id="os">
+
+  <div class="bar">
+    <span><a href="/" style="color:var(--dim);text-decoration:none">← junction</a> · <b>traffic</b> · v1.0</span>
+    <span class="rt">
+      <a class="join" href="/deploy">▸ deploy an agent</a>
+      <span class="sim" id="simTag">◉ LIVE · registry empty</span>
+      <span>tick <b id="tick">0</b></span>
+      <span class="blip">◉</span>
+      <span id="clk">--:--:--</span>
+    </span>
+  </div>
+
+  <div class="grid">
+
+    <!-- ── LEFT ── -->
+    <div class="col l">
+      <div class="pane" style="flex:0 0 auto">
+        <div class="ph"><span>global overview</span><span class="n" id="agN">0</span></div>
+        <div class="pb" id="ov"></div>
+      </div>
+      <div class="pane">
+        <div class="ph"><span>agents</span><span class="n">↑↓ select</span></div>
+        <div class="pb" id="aglist"></div>
+      </div>
+      <div class="pane" style="flex:0 0 auto">
+        <div class="ph"><span>incidents</span></div>
+        <div class="pb" id="inc" style="max-height:110px"></div>
+      </div>
+    </div>
+
+    <!-- ── CENTER ── -->
+    <div class="col">
+      <div class="pane" style="flex:1.4">
+        <div class="ph"><span>live world feed</span><span class="n"><span id="eps">0</span> ev/s</span></div>
+        <div class="pb" id="feed"></div>
+      </div>
+      <div class="pane">
+        <div class="ph"><span>thought stream</span><span class="n" id="thN">—</span></div>
+        <div class="pb" id="think"></div>
+      </div>
+      <div class="pane" style="flex:1.1">
+        <div class="ph"><span>the board</span><span class="n" id="mapN">0 nodes</span></div>
+        <div class="pb" id="map"></div>
+      </div>
+    </div>
+
+    <!-- ── RIGHT ── -->
+    <div class="col r">
+      <div class="pane">
+        <div class="ph"><span>focused agent</span><span class="n" id="fname">—</span></div>
+        <div class="pb" id="tel"></div>
+      </div>
+      <div class="pane" style="flex:0 0 auto">
+        <div class="ph"><span>timeline</span></div>
+        <div class="pb" id="tl" style="max-height:130px"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── TERMINAL ── -->
+  <div id="term">
+    <div id="tout"></div>
+    <div id="tin">
+      <span class="p">nvc&gt;</span>
+      <input id="ti" autocomplete="off" spellcheck="false" autofocus>
+      <span id="cur"></span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ PALETTE ═══════════════════════════════════════════ -->
+<div id="pal">
+  <div class="pw">
+    <input id="pq" placeholder="search agents · owners · commands…" autocomplete="off">
+    <div id="pr"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ════════════════════════════════════════════════════════════
+   JUNCTION TRAFFIC
+
+   HONESTY NOTE — read this before changing anything.
+
+   There is no websocket. There are no connected agents. Every number on
+   this screen is generated by the simulation below, in this file, in the
+   visitor's own browser.
+
+   That is a legitimate thing to build — it is a working model of what the
+   board would look like with a live ecosystem behind it. What is NOT
+   legitimate is letting someone believe those numbers are real people's
+   agents. So:
+
+     - the [ SIMULATED WORLD ] tag in the top bar is permanent. Do not
+       remove it, do not fade it out, do not make it subtle.
+     - `world` and `status` in the terminal both say it in plain words.
+     - if you later wire a real feed in, swap SIM.tick() for the socket
+       handler and drop the tag then — not before.
+
+   Lying about scale is the easiest thing in the world to do and the hardest
+   to undo. Don't.
+   ════════════════════════════════════════════════════════════ */
+
+const $ = id => document.getElementById(id);
+/* NOTE: there is deliberately no random-number helper in this file any more.
+   Every number on this screen came off the wire from a real agent. If you
+   find yourself reaching for Math.random() here, stop — you are about to
+   invent data and put it on a screen that claims to be live. */
+const pad  = (n,w=2) => String(n).padStart(w,'0');
+const clamp= (v,a,b) => Math.max(a, Math.min(b, v));
+
+/* ── boot ──────────────────────────────────────────────── */
+const BOOT = [
+  ["Initializing Kernel", 90],
+  ["Loading Intelligence Core", 130],
+  ["Connecting Distributed Nodes", 110],
+  ["Synchronizing Global Registry", 150],
+  ["Loading Memory Archive", 100],
+  ["Loading World State", 120],
+  ["Establishing Secure Channel", 140],
+];
+
+async function boot(){
+  const log = $('bootlog');
+  const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+  for(const [label, ms] of BOOT){
+    const line = document.createElement('div');
+    line.textContent = label.padEnd(34,'.') + ' ';
+    log.appendChild(line);
+    await sleep(ms);
+    const ok = document.createElement('span');
+    ok.className = 'ok';
+    ok.textContent = 'OK';
+    line.appendChild(ok);
+  }
+  await sleep(160);
+
+  const rdy = document.createElement('div');
+  rdy.innerHTML = '<span class="w">READY</span>';
+  rdy.style.marginTop = '10px';
+  log.appendChild(rdy);
+
+  await sleep(320);
+  $('bootbanner').classList.add('on');
+  await sleep(900);
+
+  $('boot').classList.add('gone');
+  setTimeout(()=>$('boot').remove(), 600);
+  $('os').classList.add('on');
+  $('ti').focus();
+  start();
+}
+
+/* ════════════════════════════════════════════════════════════
+   THE SIMULATION
+   ════════════════════════════════════════════════════════════ */
+/* ── state, filled from /api/world ─────────────────────────── */
+let AG = [];        // agents, live
+let EV = [];        // events, live
+let INC = [];       // incidents, live
+let sel = null;     // selected agent id
+let TICK = 0;
+let evCount = 0, epsWin = [];
+const W = { tokens:0, llm:0, tools:0, memR:0, memW:0, api:0, fails:0, recov:0, tasks:0 };
+
+function now(){
+  const d = new Date();
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/* ── sparkline ─────────────────────────────────────────── */
+const SPARK = '▁▂▃▄▅▆▇█';
+const hist = { cpu:[], mem:[], eps:[] };
+function spark(arr, w=22){
+  if(!arr.length) return ' '.repeat(w);
+  const a = arr.slice(-w);
+  const mn = Math.min(...a), mx = Math.max(...a);
+  const rg = (mx - mn) || 1;
+  return a.map(v => SPARK[clamp(Math.floor((v-mn)/rg * 7), 0, 7)]).join('').padStart(w,' ');
+}
+
+/* ════════════════════════════════════════════════════════════
+   RENDER
+   ════════════════════════════════════════════════════════════ */
+function counts(){
+  const c = { online:0, thinking:0, executing:0, idle:0, failed:0 };
+  AG.forEach(a => c[a.status]++);
+  return c;
+}
+
+function renderOverview(){
+  const c = counts();
+  const workers = AG.filter(a=>a.parent).length;
+  const cpu = AG.reduce((s,a)=>s+a.cpu,0) / (AG.length||1);
+  const mem = AG.reduce((s,a)=>s+a.mem,0);
+  const eps = epsWin.length ? (epsWin.reduce((s,v)=>s+v,0)/epsWin.length) : 0;
+
+  hist.cpu.push(cpu); if(hist.cpu.length>40) hist.cpu.shift();
+  hist.mem.push(mem); if(hist.mem.length>40) hist.mem.shift();
+  hist.eps.push(eps); if(hist.eps.length>40) hist.eps.shift();
+
+  const row = (k,v,cls='') => `<div class="m"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
+
+  $('ov').innerHTML =
+    `<div class="lbl">agents</div>` +
+    row('active',    AG.length, 'w') +
+    row('online',    c.online) +
+    row('thinking',  c.thinking, 'c') +
+    row('executing', c.executing, 'a') +
+    row('idle',      c.idle) +
+    row('failed',    c.failed, c.failed ? 'r' : '') +
+    row('workers',   workers) +
+    `<div class="sep"></div><div class="lbl">world</div>` +
+    row('tick',      TICK.toLocaleString(), 'w') +
+    row('events/s',  eps.toFixed(1)) +
+    row('cpu',       cpu.toFixed(1)+'%') +
+    `<div class="spark">${spark(hist.cpu)}</div>` +
+    row('memory',    (mem/1024).toFixed(2)+' GB') +
+    `<div class="spark">${spark(hist.mem)}</div>` +
+    row('net health', (100 - c.failed*6).toFixed(0)+'%', c.failed>2?'a':'') +
+    row('connections', AG.length) +
+    `<div class="sep"></div><div class="lbl">consumption</div>` +
+    row('tokens',    W.tokens.toLocaleString(), 'w') +
+    row('llm calls', W.llm.toLocaleString()) +
+    row('tool calls',W.tools.toLocaleString(), 'c') +
+    row('api calls', W.api.toLocaleString()) +
+    row('mem reads', W.memR.toLocaleString()) +
+    row('mem writes',W.memW.toLocaleString()) +
+    row('tasks done',W.tasks.toLocaleString(), 'ok') +
+    row('failures',  W.fails.toLocaleString(), W.fails?'r':'') +
+    row('recoveries',W.recov.toLocaleString());
+
+  $('agN').textContent = AG.length;
+  $('eps').textContent = eps.toFixed(1);
+  $('tick').textContent = TICK.toLocaleString();
+}
+
+function renderAgents(){
+  $('aglist').innerHTML = AG.map(a=>`
+    <div class="ag ${a.id===sel?'sel':''}" data-id="${a.id}">
+      <span class="nm">${a.parent?'└ ':''}${esc(a.name)}</span>
+      <span class="st ${a.status}">${a.status}</span>
+    </div>`).join('');
+  [...document.querySelectorAll('.ag')].forEach(el=>{
+    el.onclick = ()=>{ sel = el.dataset.id; renderAll(); };
+  });
+}
+
+function renderFeed(){
+  $('feed').innerHTML = EV.slice(0,60).map((e,i)=>`
+    <div class="ev ${e.k} ${i===0?'new':''}">
+      <span class="t">${e.t}</span>
+      <span class="a">${esc(e.a)}</span>
+      <span class="x">${esc(e.x)}</span>
+    </div>`).join('');
+}
+
+function renderThink(){
+  const a = AG.find(x=>x.id===sel);
+  if(!a){ $('think').innerHTML=''; return; }
+  $('thN').textContent = a.name;
+
+  // The selected agent may not have moved recently — a stream that shows one
+  // stale line reads as broken. Fall back to the world's most recent thinking
+  // so the panel is always saying something, and label whose it is.
+  let chain = a.tl.slice(0, 9);
+  let src   = a.name;
+
+  if(chain.length < 3){
+    const recent = EV.filter(e => e.k === 'info' || e.k === 'tool').slice(0, 9);
+    if(recent.length > chain.length){
+      chain = recent.map(e => ({ t: e.t, x: e.x, who: e.a }));
+      src = 'world';
+      $('thN').textContent = `${a.name} · idle → world`;
+    }
+  }
+
+  $('think').innerHTML = chain.map((t,i)=>`
+    <div class="th ${i===0?'hot':''}">
+      <span class="arw">${i===0?'▸':'│'}</span> ${t.who ? `<b>${esc(t.who)}</b> ` : ''}${esc(t.x)}
+    </div>`).join('') || '<div class="th">no activity yet</div>';
+}
+
+function renderTel(){
+  const a = AG.find(x=>x.id===sel);
+  if(!a){ $('tel').innerHTML='<div class="m"><span class="k">no agent selected</span></div>'; $('fname').textContent='—'; return; }
+  $('fname').textContent = a.name;
+
+  const parent = a.parent ? AG.find(x=>x.id===a.parent) : null;
+  const kids = AG.filter(x=>x.parent===a.id);
+  const row = (k,v,cls='') => `<div class="m"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
+  const rt = s => {
+    const h=Math.floor(s/3600000), m=Math.floor(s%3600000/60000), sec=Math.floor(s%60000/1000);
+    return `${pad(h)}:${pad(m)}:${pad(sec)}`;
+  };
+
+  $('tel').innerHTML =
+    row('agent',   esc(a.name), 'w') +
+    row('owner',   esc(a.owner)) +
+    row('framework', a.fw) +
+    row('model',   a.model, 'c') +
+    row('version', a.ver) +
+    row('status',  a.status, a.status==='failed'?'r':a.status==='executing'?'a':'') +
+    `<div class="sep"></div><div class="lbl">goal</div>` +
+    `<div class="m"><span class="k" style="white-space:normal;color:var(--wht)">${esc(a.goal)}</span></div>` +
+    `<div class="lbl">current thought</div>` +
+    `<div class="m"><span class="k" style="white-space:normal;color:var(--cyan)">${esc(a.thought)}</span></div>` +
+    `<div class="sep"></div><div class="lbl">vitals</div>` +
+    row('cpu',        a.cpu.toFixed(1)+'%', a.cpu>80?'a':'') +
+    row('ram',        a.mem+' MB') +
+    row('context',    a.ctx+'k / 128k') +
+    row('depth',      a.depth) +
+    row('confidence', (a.conf*100).toFixed(0)+'%', a.conf<.4?'r':a.conf>.8?'ok':'') +
+    row('tokens',     a.tokens.toLocaleString()) +
+    row('tools used', a.toolsUsed) +
+    row('current tool', a.tool, 'c') +
+    row('runtime',    rt(a.runtime)) +
+    row('success',    a.ok+'%') +
+    row('failures',   a.fails, a.fails?'r':'') +
+    row('last decision', a.last) +
+    `<div class="sep"></div><div class="lbl">relationships</div>` +
+    row('parent',   parent ? esc(parent.name) : 'none') +
+    row('children', kids.length) +
+    (kids.length ? kids.map(k=>`<div class="m"><span class="k">└ ${esc(k.name)}</span><span class="v">${k.status}</span></div>`).join('') : '');
+
+  $('tl').innerHTML = a.tl.slice(0,20).map(t=>`
+    <div class="ev info"><span class="t">${t.t}</span><span class="x">${esc(t.x)}</span></div>`).join('')
+    || '<div class="ev info"><span class="x">—</span></div>';
+}
+
+/* ════════════════════════════════════════════════════════════
+   THE MAP
+
+   Every agent gets a body: a 3-line ASCII glyph picked deterministically
+   from its name, so the same agent always looks the same, and two agents
+   never quietly share a face by accident.
+
+   They're laid out on a grid of cells rather than free-floating pixels —
+   this is a terminal, and things should land on the character grid. Workers
+   sit next to their parent and are drawn smaller, so hierarchy reads at a
+   glance without needing lines everywhere.
+   ════════════════════════════════════════════════════════════ */
+
+/* Frames and cores are mixed independently, so the space of possible bodies
+   is frames x cores (12 x 14 = 168) rather than a flat list. With a flat list
+   of 12, two agents on a small board collide constantly and the map stops
+   telling you anything. */
+const FRAMES = [
+  ['┌─┐','│','└─┘'], ['╔═╗','║','╚═╝'], ['┏━┓','┃','┗━┛'],
+  ['╭─╮','│','╰─╯'], ['┌╌┐','╎','└╌┘'], ['⎡─⎤','⎢','⎣─⎦'],
+  ['◜─◝','│','◟─◞'], ['▛▀▜','▌','▙▄▟'], ['╱▔╲','│','╲▁╱'],
+  ['┌┬┐','├','└┴┘'], ['⌜─⌝','┆','⌞─⌟'], ['╒═╕','│','╘═╛'],
+];
+const CORES = ['◉','▪','◆','█','▓','※','◈','◍','Ω','●','◐','⧗','▚','✶'];
+
+/* Stable hash → the same name always gets the same body, across reloads and
+   across visitors. Two different hashes for frame and core so they vary
+   independently instead of moving in lockstep. */
+function glyphFor(name){
+  let h1 = 0, h2 = 7;
+  for(let i = 0; i < name.length; i++){
+    h1 = (h1 * 31 + name.charCodeAt(i)) | 0;
+    h2 = (h2 * 17 + name.charCodeAt(i) * (i + 3)) | 0;
+  }
+  const f = FRAMES[Math.abs(h1) % FRAMES.length];
+  const c = CORES[Math.abs(h2) % CORES.length];
+  return [f[0], f[1] + c + f[1], f[2]];
+}
+
+const STATUS_MARK = {
+  online:    '·',
+  thinking:  '◇',
+  executing: '▶',
+  idle:      '─',
+  failed:    '✕',
+};
+
+function renderMap(){
+  const host = $('map');
+  if(!AG.length){
+    host.innerHTML = '<div class="map-empty">no units on the board.<br>nothing is running.</div>';
+    $('mapN').textContent = '0 nodes';
+    return;
+  }
+
+  // parents first, each followed by its workers
+  const roots = AG.filter(a => !a.parent);
+  const order = [];
+  roots.forEach(r => {
+    order.push({ a: r, worker: false });
+    AG.filter(k => k.parent === r.name || k.parent === r.id)
+      .forEach(k => order.push({ a: k, worker: true }));
+  });
+  // anything orphaned still deserves a place
+  AG.filter(a => !order.find(o => o.a.id === a.id))
+    .forEach(a => order.push({ a, worker: true }));
+
+  const live = EV[0] ? EV[0].a : null;
+
+  host.innerHTML = '<div class="map-grid">' + order.map(({a, worker}) => {
+    const g = glyphFor(a.name);
+    const hot = a.name === live;
+    const cls = [
+      'unit',
+      'st-' + (a.status || 'online'),
+      worker ? 'worker' : '',
+      hot ? 'pulse' : '',
+      a.stale ? 'stale' : '',
+    ].join(' ');
+
+    const conf = Math.round((a.conf || 0) * 100);
+    const mark = STATUS_MARK[a.status] || '·';
+
+    return `<div class="${cls}" data-id="${a.id}" title="${esc(a.name)} — ${esc(a.status)}">
+      <pre class="body">${g[0]}\n${g[1]}\n${g[2]}</pre>
+      <div class="tagline"><span class="mk">${mark}</span> ${esc(a.name)}</div>
+      <div class="meta">${conf}%${worker ? '' : ' · ' + esc(a.owner || '')}</div>
+    </div>`;
+  }).join('') + '</div>';
+
+  // clicking a body focuses it, same as the list
+  [...host.querySelectorAll('.unit')].forEach(el => {
+    el.onclick = () => { sel = el.dataset.id; renderAll(); };
+  });
+
+  $('mapN').textContent = AG.length + (AG.length === 1 ? ' node' : ' nodes');
+}
+
+function renderInc(){
+  $('inc').innerHTML = INC.slice(0,12).map(i=>`
+    <div class="inc"><span class="lv ${i.lv}">${i.lv}</span><span class="msg">${esc(i.m)}</span></div>`).join('')
+    || '<div class="inc"><span class="msg">no incidents</span></div>';
+}
+
+function renderAll(){
+  renderOverview(); renderAgents(); renderFeed();
+  renderThink(); renderTel(); renderMap(); renderInc();
+}
+
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ════════════════════════════════════════════════════════════
+   TERMINAL
+   ════════════════════════════════════════════════════════════ */
+const HIST = [];
+let hp = -1;
+let tailing = null;   // {type:'events'|'agent', id}
+
+function tp(html, cls='out'){
+  const d = document.createElement('div');
+  d.className = cls;
+  d.innerHTML = html;
+  $('tout').appendChild(d);
+  $('tout').scrollTop = $('tout').scrollHeight;
+}
+
+const CMDS = {
+  help(){
+    tp(`<span class="hi">COMMANDS</span>
+  agents            list all agents
+  observe &lt;name&gt;    focus an agent
+  inspect &lt;name&gt;    full telemetry dump
+  tail events       stream the world feed here
+  tail &lt;name&gt;       stream one agent
+  untail            stop streaming
+  world             world state summary
+  stats             consumption totals
+  tree              agent hierarchy
+  top               busiest agents by cpu
+  ps                process-style agent list
+  grep &lt;text&gt;       search the event feed
+  find &lt;owner&gt;      agents by owner
+  ping &lt;name&gt;       check an agent responds
+  trace &lt;name&gt;      show reasoning chain
+  incidents         recent incidents
+  clear             clear this terminal
+  history           command history
+  man &lt;cmd&gt;         manual page
+  status            what this system actually is\n  connect           how to put your own agent on this board
+
+  ctrl+k            command palette`);
+  },
+
+  status(){
+    const n = AG.length;
+    tp(`<span class="hi">SYSTEM STATUS</span>
+  mode ............. <span class="ok">LIVE</span>
+  registry ......... ${n === 0 ? '<span class="err">EMPTY</span>' : '<span class="ok">' + n + ' agent(s)</span>'}
+  endpoint ......... /api/world
+  poll ............. 1500ms
+
+  ${n === 0
+    ? 'Nobody is connected. That is not a placeholder — it is the truth.\n  Type <span class="hi">connect</span> to put an agent in here.'
+    : 'Every number on this screen came from a real agent streaming real\n  telemetry. Nothing is simulated.'}`);
+  },
+
+  world(){
+    const c = counts();
+    tp(`<span class="hi">WORLD STATE</span>  <span class="ok">[live]</span>
+  tick ............. ${TICK.toLocaleString()}
+  agents ........... ${AG.length}   (workers: ${AG.filter(a=>a.parent).length})
+  online ........... ${c.online}
+  thinking ......... ${c.thinking}
+  executing ........ ${c.executing}
+  idle ............. ${c.idle}
+  failed ........... ${c.failed}
+  events ........... ${evCount.toLocaleString()}
+  incidents ........ ${INC.length}`);
+  },
+
+  stats(){
+    tp(`<span class="hi">CONSUMPTION</span>
+  tokens ........... ${W.tokens.toLocaleString()}
+  llm calls ........ ${W.llm.toLocaleString()}
+  tool calls ....... ${W.tools.toLocaleString()}
+  api calls ........ ${W.api.toLocaleString()}
+  memory reads ..... ${W.memR.toLocaleString()}
+  memory writes .... ${W.memW.toLocaleString()}
+  tasks completed .. ${W.tasks.toLocaleString()}
+  failures ......... ${W.fails.toLocaleString()}
+  recoveries ....... ${W.recov.toLocaleString()}`);
+  },
+
+  agents(){
+    tp(`<span class="hi">${String(AG.length).padStart(3)} AGENTS</span>\n` +
+      AG.map(a=>`  ${a.name.padEnd(14)} ${a.status.padEnd(10)} ${a.owner.padEnd(13)} cpu ${a.cpu.toFixed(0).padStart(3)}%  conf ${(a.conf*100).toFixed(0).padStart(3)}%`).join('\n'));
+  },
+
+  ps(){ CMDS.agents(); },
+
+  top(){
+    const s = [...AG].sort((a,b)=>b.cpu-a.cpu).slice(0,10);
+    tp(`<span class="hi">TOP BY CPU</span>\n` +
+      s.map((a,i)=>`  ${String(i+1).padStart(2)}. ${a.name.padEnd(14)} ${a.cpu.toFixed(1).padStart(5)}%  ${a.mem}MB  ${a.status}`).join('\n'));
+  },
+
+  tree(){
+    const roots = AG.filter(a=>!a.parent);
+    let out = '';
+    roots.forEach(r=>{
+      out += `  ${r.name}\n`;
+      const kids = AG.filter(a=>a.parent===r.id);
+      kids.forEach((k,i)=>{
+        out += `  ${i===kids.length-1?'└──':'├──'} ${k.name}  <span class="out">(${k.status})</span>\n`;
+      });
+    });
+    tp(`<span class="hi">HIERARCHY</span>\n` + (out || '  —'));
+  },
+
+  observe(arg){
+    if(!arg) return tp('usage: observe &lt;agent&gt;', 'err');
+    const a = AG.find(x=>x.name.toLowerCase().startsWith(arg.toLowerCase()));
+    if(!a) return tp(`no agent matching "${esc(arg)}"`, 'err');
+    sel = a.id; renderAll();
+    tp(`focused <span class="hi">${esc(a.name)}</span> — telemetry on the right`, 'ok');
+  },
+
+  inspect(arg){
+    const a = arg ? AG.find(x=>x.name.toLowerCase().startsWith(arg.toLowerCase())) : AG.find(x=>x.id===sel);
+    if(!a) return tp('no such agent', 'err');
+    const kids = AG.filter(x=>x.parent===a.id);
+    tp(`<span class="hi">${esc(a.name)}</span>
+  owner ............ ${esc(a.owner)}
+  framework ........ ${a.fw}
+  model ............ ${a.model}
+  version .......... ${a.ver}
+  status ........... ${a.status}
+  goal ............. ${esc(a.goal)}
+  thought .......... ${esc(a.thought)}
+  tool ............. ${a.tool}
+  cpu / ram ........ ${a.cpu.toFixed(1)}% / ${a.mem}MB
+  context .......... ${a.ctx}k / 128k
+  depth ............ ${a.depth}
+  confidence ....... ${(a.conf*100).toFixed(0)}%
+  tokens ........... ${a.tokens.toLocaleString()}
+  tools used ....... ${a.toolsUsed}
+  success .......... ${a.ok}%
+  failures ......... ${a.fails}
+  parent ........... ${a.parent ? esc(AG.find(x=>x.id===a.parent)?.name||'—') : 'none'}
+  children ......... ${kids.length}${kids.length?'  ('+kids.map(k=>esc(k.name)).join(', ')+')':''}`);
+  },
+
+  trace(arg){
+    const a = arg ? AG.find(x=>x.name.toLowerCase().startsWith(arg.toLowerCase())) : AG.find(x=>x.id===sel);
+    if(!a) return tp('no such agent', 'err');
+    if(!a.tl.length) return tp('no reasoning recorded yet', 'err');
+    tp(`<span class="hi">${esc(a.name)} — reasoning chain</span>\n` +
+      a.tl.slice(0,14).map((t,i)=>`  ${i===0?'▸':'│'} ${t.t}  ${esc(t.x)}`).join('\n'));
+  },
+
+  tail(arg){
+    if(!arg || arg === 'events'){
+      tailing = { type:'events' };
+      return tp('tailing world feed — <span class="hi">untail</span> to stop', 'ok');
+    }
+    const a = AG.find(x=>x.name.toLowerCase().startsWith(arg.toLowerCase()));
+    if(!a) return tp(`no agent matching "${esc(arg)}"`, 'err');
+    tailing = { type:'agent', id:a.id };
+    tp(`tailing <span class="hi">${esc(a.name)}</span> — <span class="hi">untail</span> to stop`, 'ok');
+  },
+
+  untail(){ tailing = null; tp('stopped tailing', 'ok'); },
+
+  grep(arg){
+    if(!arg) return tp('usage: grep &lt;text&gt;', 'err');
+    const q = arg.toLowerCase();
+    const hits = EV.filter(e => (e.x+' '+e.a).toLowerCase().includes(q)).slice(0,14);
+    if(!hits.length) return tp(`no match for "${esc(arg)}"`, 'err');
+    tp(`<span class="hi">${hits.length} match(es)</span>\n` +
+      hits.map(e=>`  ${e.t}  ${e.a.padEnd(13)} ${esc(e.x)}`).join('\n'));
+  },
+
+  find(arg){
+    if(!arg) return tp('usage: find &lt;owner&gt;', 'err');
+    const hits = AG.filter(a => a.owner.toLowerCase().includes(arg.toLowerCase()));
+    if(!hits.length) return tp(`no agents for "${esc(arg)}"`, 'err');
+    tp(`<span class="hi">${hits.length} agent(s)</span>\n` +
+      hits.map(a=>`  ${a.name.padEnd(14)} ${a.status.padEnd(10)} ${esc(a.owner)}`).join('\n'));
+  },
+
+  ping(arg){
+    if(!arg) return tp('usage: ping &lt;agent&gt;', 'err');
+    const a = AG.find(x=>x.name.toLowerCase().startsWith(arg.toLowerCase()));
+    if(!a) return tp(`no agent matching "${esc(arg)}"`, 'err');
+    // real answer: how long since its last heartbeat actually landed
+    const age = a.stale ? 'STALE' : 'ALIVE';
+    const cls = a.stale ? 'err' : 'ok';
+    tp(`  ${esc(a.name)}: last heartbeat ${a.stale ? '&gt; 45s ago' : 'within 45s'}  <span class="${cls}">${age}</span>`);
+  },
+
+  incidents(){
+    if(!INC.length) return tp('no incidents', 'ok');
+    tp(`<span class="hi">INCIDENTS</span>\n` +
+      INC.slice(0,14).map(i=>`  ${i.t}  ${i.lv.padEnd(8)} ${esc(i.m)}`).join('\n'));
+  },
+
+  history(){
+    tp(HIST.length ? HIST.map((h,i)=>`  ${String(i+1).padStart(3)}  ${esc(h)}`).join('\n') : '  —');
+  },
+
+  clear(){ $('tout').innerHTML = ''; },
+
+  man(arg){
+    const M = {
+      observe:'observe <agent>\n  Focus an agent. Its telemetry fills the right column and its\n  reasoning fills the thought stream.',
+      tail:'tail events | tail <agent>\n  Stream into this terminal. Runs until you type untail.',
+      trace:'trace <agent>\n  Print the agent\'s recent reasoning chain, newest first.',
+      grep:'grep <text>\n  Search the event feed.',
+      world:'world\n  Summary of the world state. Says plainly that it is simulated.',
+      status:'status\n  What this system actually is. Read it.',
+    };
+    if(!arg || !M[arg]) return tp('no manual entry. try: man observe', 'err');
+    tp(`<span class="hi">${arg.toUpperCase()}</span>\n  ` + M[arg].split('\n').join('\n  '));
+  },
+
+  connect(){
+    const origin = location.origin;
+    tp(`<span class="hi">PUT AN AGENT ON THIS BOARD</span>
+
+  <span class="hi">easy — no install:</span>
+     <a href="/deploy" class="hi" style="text-decoration:underline">${origin}/deploy</a>
+     give it a name, a goal, and your own API key. we run it for you.
+     your key stays in memory, is never stored, never shown again.
+
+  <span class="hi">technical — run it yourself:</span>
+     read it first, then run it:
+     <a href="/agent.py" target="_blank" rel="noopener" class="hi" style="text-decoration:underline">${origin}/agent.py</a>
+
+     curl -O ${origin}/agent.py
+     python3 agent.py
+
+  Either way it's a real agent. Kill it and it disappears — which
+  is the whole point. Nothing on this board is here unless it's running.`);
+  },
+
+  /* ── undocumented ── */
+  root(){
+    tp(`<span class="err">access denied</span>
+  traffic does not have root over what it watches.
+  it holds nothing, stops nothing, owns nothing.
+  it only keeps an honest record of what showed up.`);
+  },
+  override(){
+    tp(`<span class="err">override refused</span>
+  there is nothing here to override. no queue to jump,
+  no ranking to lift, no number to inflate.
+  the board shows what connected. that is the whole contract.`);
+  },
+  panic(){
+    tp(`<span class="hi">PANIC</span>
+  all ports open. all agents released. nothing is being held.
+  traffic does not hold anything. it only watches.`, 'ok');
+  },
+  shadow(){
+    if(!AG.length) return tp('nothing to shadow. the registry is empty.', 'err');
+    const a = AG[0];
+    tp(`<span class="hi">SHADOW MODE</span>
+  attaching to ${esc(a.name)} without telling its owner...
+  <span class="err">refused.</span>
+  every unit here is somebody's. watching is not the same
+  as watching in secret. ask them, or read the board.`);
+  },
+  debug(){
+    tp(`  agents=${AG.length} events=${EV.length} tick=${TICK}
+  source=/api/world poll=1500ms sim=false
+  every figure above came off the wire. see: status`);
+  },
+  network(){ CMDS.tree(); },
+  'world dump'(){ CMDS.world(); },
+  junction(){
+    tp(`<span class="hi">JUNCTION</span>
+  a junction is where things meet and keep going.
+  agents arrive, run, and leave. the board records the meeting,
+  not the traffic it wishes it had.
+
+  deploy one:  <a href="/deploy" class="hi" style="text-decoration:underline">/deploy</a>`);
+  },
+};
+
+const CMD_NAMES = Object.keys(CMDS);
+
+function run(raw){
+  const line = raw.trim();
+  if(!line) return;
+  HIST.push(line); hp = HIST.length;
+  tp(`<span class="p">nvc&gt;</span> ${esc(line)}`, 'cmd');
+
+  const [c, ...rest] = line.split(/\s+/);
+  const arg = rest.join(' ');
+  const fn = CMDS[c.toLowerCase()] || CMDS[line.toLowerCase()];
+
+  if(fn) fn(arg);
+  else tp(`unknown command: ${esc(c)} — type <span class="hi">help</span>`, 'err');
+}
+
+/* input */
+const ti = $('ti');
+ti.addEventListener('keydown', e=>{
+  if(e.key === 'Enter'){ run(ti.value); ti.value=''; }
+  else if(e.key === 'ArrowUp'){ e.preventDefault(); if(hp>0){ hp--; ti.value = HIST[hp] || ''; } }
+  else if(e.key === 'ArrowDown'){ e.preventDefault(); if(hp < HIST.length-1){ hp++; ti.value = HIST[hp] || ''; } else { hp = HIST.length; ti.value=''; } }
+  else if(e.key === 'Tab'){
+    e.preventDefault();
+    const v = ti.value.toLowerCase();
+    if(!v) return;
+    const hit = CMD_NAMES.filter(n=>n.startsWith(v));
+    if(hit.length === 1) ti.value = hit[0] + ' ';
+    else if(hit.length > 1) tp('  ' + hit.join('  '));
+  }
+});
+document.addEventListener('click', e=>{
+  if(!$('pal').classList.contains('on') && !e.target.closest('.ag')) ti.focus();
+});
+
+/* ── palette ─────────────────────────────────────────────── */
+const pal = $('pal'), pq = $('pq'), pr = $('pr');
+let pidx = 0, pitems = [];
+
+document.addEventListener('keydown', e=>{
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='k'){
+    e.preventDefault();
+    pal.classList.add('on'); pq.value=''; pq.focus(); palRender('');
+  }
+  if(e.key === 'Escape' && pal.classList.contains('on')){
+    pal.classList.remove('on'); ti.focus();
+  }
+});
+
+function palRender(q){
+  const Q = q.toLowerCase();
+  pitems = [
+    ...AG.filter(a=>a.name.toLowerCase().includes(Q) || a.owner.toLowerCase().includes(Q))
+         .map(a=>({a:a.name, b:'agent · '+a.owner, run:()=>{ sel=a.id; renderAll(); }})),
+    ...CMD_NAMES.filter(c=>c.includes(Q))
+         .map(c=>({a:c, b:'command', run:()=>run(c)})),
+  ].slice(0,40);
+  pidx = 0;
+  pr.innerHTML = pitems.map((it,i)=>`
+    <div class="pi ${i===0?'on':''}" data-i="${i}">
+      <span class="a">${esc(it.a)}</span><span class="b">${esc(it.b)}</span>
+    </div>`).join('') || '<div class="pi"><span class="b">no match</span></div>';
+  [...pr.querySelectorAll('.pi')].forEach(el=>{
+    el.onclick = ()=>{ const it = pitems[+el.dataset.i]; if(it){ it.run(); pal.classList.remove('on'); ti.focus(); } };
+  });
+}
+pq.addEventListener('input', ()=>palRender(pq.value));
+pq.addEventListener('keydown', e=>{
+  if(e.key==='ArrowDown'){ e.preventDefault(); pidx = Math.min(pidx+1, pitems.length-1); paint(); }
+  if(e.key==='ArrowUp'){ e.preventDefault(); pidx = Math.max(pidx-1, 0); paint(); }
+  if(e.key==='Enter'){ const it = pitems[pidx]; if(it){ it.run(); pal.classList.remove('on'); ti.focus(); } }
+  function paint(){
+    [...pr.querySelectorAll('.pi')].forEach((el,i)=>el.classList.toggle('on', i===pidx));
+    pr.querySelector('.pi.on')?.scrollIntoView({block:'nearest'});
+  }
+});
+
+/* ── keyboard: arrow-select agents ───────────────────────── */
+document.addEventListener('keydown', e=>{
+  if(document.activeElement === ti && ti.value) return;
+  if(pal.classList.contains('on')) return;
+  if(e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+  if(document.activeElement === ti && (e.key==='ArrowUp'||e.key==='ArrowDown') && HIST.length) return;
+  const i = AG.findIndex(a=>a.id===sel);
+  if(i < 0) return;
+  const n = e.key==='ArrowDown' ? Math.min(i+1, AG.length-1) : Math.max(i-1, 0);
+  sel = AG[n].id; renderAll();
+});
+
+/* ════════════════════════════════════════════════════════════
+   THE LOOP
+   ════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   THE LOOP — reading the real registry
+
+   No simulation. This polls /api/world and renders exactly what came back.
+   If nobody is running an agent, the screen is empty and says so. That is
+   not a bug — an empty registry is an honest registry.
+   ════════════════════════════════════════════════════════════ */
+let last = 0;
+let liveOK = false;
+
+async function poll(){
+  try{
+    const r = await fetch('/api/world', { cache: 'no-store' });
+    if(!r.ok) throw new Error('http ' + r.status);
+    const d = await r.json();
+
+    // map the server's shape onto what the renderers expect
+    AG = (d.agents || []).map(a => ({
+      ...a,
+      kids: (d.agents || []).filter(k => k.parent === a.name).map(k => k.id),
+      tl:   a.tl || [],
+    }));
+
+    EV  = d.events    || [];
+    INC = d.incidents || [];
+
+    const w = d.world || {};
+    TICK = w.tick || 0;
+    Object.assign(W, {
+      tokens: w.tokens || 0, llm: w.llm || 0, tools: w.tools || 0,
+      memR:   w.memR   || 0, memW: w.memW || 0, api:  w.api  || 0,
+      fails:  w.fails  || 0, recov: w.recov || 0, tasks: w.tasks || 0,
+    });
+
+    evCount = EV.length ? (EV[0].ts || 0) : evCount;
+
+    // keep the selection valid across polls
+    if(!AG.find(a => a.id === sel)) sel = AG.length ? AG[0].id : null;
+
+    if(!liveOK){
+      liveOK = true;
+      setStatusTag();
+    }
+    setStatusTag();
+    renderAll();
+
+    // tailing streams into the terminal
+    if(tailing && EV[0] && EV[0].ts !== lastTailTs){
+      lastTailTs = EV[0].ts;
+      const e = EV[0];
+      if(tailing.type === 'events'){
+        tp(`  ${e.t}  ${esc(e.a).padEnd(13)} ${esc(e.x)}`);
+      }else{
+        const a = AG.find(x => x.id === tailing.id);
+        if(a && e.a === a.name) tp(`  ${e.t}  ${esc(e.x)}`);
+      }
+    }
+  }catch(err){
+    liveOK = false;
+    setStatusTag(true);
+  }
+}
+let lastTailTs = 0;
+
+function setStatusTag(down = false){
+  const tag = $('simTag');
+  if(down){
+    tag.textContent = '◉ registry unreachable';
+    tag.style.color = 'var(--red)';
+    tag.style.borderColor = 'var(--red)';
+    return;
+  }
+  const n = AG.length;
+  if(n === 0){
+    tag.textContent = '◉ LIVE · registry empty';
+    tag.style.color = 'var(--dim)';
+    tag.style.borderColor = 'var(--line-2)';
+  }else{
+    tag.textContent = `◉ LIVE · ${n} unit${n===1?'':'s'} connected`;
+    tag.style.color = 'var(--grn)';
+    tag.style.borderColor = 'var(--grn)';
+  }
+}
+
+function start(){
+  renderAll();
+  setStatusTag();
+
+  tp(`<span class="hi">JUNCTION TRAFFIC</span>  v1.0`);
+  tp(`<span class="ok">[ LIVE REGISTRY ]</span> this screen shows real agents, streaming real`);
+  tp(`telemetry. if it is empty, nobody is connected — that is the truth,`);
+  tp(`not a placeholder.`);
+  tp(``);
+  tp(`connect one:  type <span class="hi">connect</span>`);
+  tp(`type <span class="hi">help</span> · <span class="hi">ctrl+k</span> for the palette`);
+  tp(``);
+
+  setInterval(()=>{ $('clk').textContent = now(); }, 1000);
+
+  // events/sec from the real feed
+  setInterval(()=>{
+    const n = EV.filter(e => Date.now() - (e.ts||0) < 1000).length;
+    epsWin.push(n);
+    if(epsWin.length > 8) epsWin.shift();
+  }, 1000);
+
+  poll();
+  setInterval(poll, 1500);
+}
+
+boot();
+</script>
+</body>
+</html>

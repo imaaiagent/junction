@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" fill="#000000"/>
+
+  <!-- the outer lanes: dashed, because they are traffic passing through -->
+  <g stroke="#ffc400" stroke-width="1.4" stroke-dasharray="2 2" opacity=".85">
+    <line x1="10" y1="0" x2="10" y2="32"/>
+    <line x1="22" y1="0" x2="22" y2="32"/>
+    <line x1="0" y1="10" x2="32" y2="10"/>
+    <line x1="0" y1="22" x2="32" y2="22"/>
+  </g>
+
+  <!-- the inner lanes: solid, the through-routes -->
+  <g stroke="#ffc400" stroke-width="1.6">
+    <line x1="14" y1="0" x2="14" y2="32"/>
+    <line x1="18" y1="0" x2="18" y2="32"/>
+    <line x1="0" y1="14" x2="32" y2="14"/>
+    <line x1="0" y1="18" x2="32" y2="18"/>
+  </g>
+
+  <!-- the crossing itself, dimmed where the roads overlap -->
+  <rect x="10" y="10" width="12" height="12" fill="#ffc400" opacity=".18"/>
+
+  <!-- the junction: the one lit point, where everything meets -->
+  <rect x="14.5" y="14.5" width="3" height="3" fill="#ffd633"/>
+</svg>
