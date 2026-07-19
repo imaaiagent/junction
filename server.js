@@ -68,11 +68,11 @@ function serveStatic(req, res){
     if(err && !path.extname(file)){
       return tryFile(file + '.html', (e2, d2, r2) => {
         if(e2) return notFound(res);
-        send(res, r2, d2);
+        send(res, r2, d2, req);
       });
     }
     if(err) return notFound(res);
-    send(res, resolved, data);
+    send(res, resolved, data, req);
   });
 }
 
@@ -83,9 +83,30 @@ function notFound(res){
   res.writeHead(404, {'Content-Type':'text/plain; charset=utf-8'});
   res.end('404 — nothing at that address');
 }
-function send(res, file, data){
+function send(res, file, data, req){
   const type  = TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream';
-  const cache = file.endsWith('cases.json') ? 'no-store' : 'public, max-age=300';
+  let cache = file.endsWith('cases.json') ? 'no-store' : 'public, max-age=300';
+
+  // agent.py ships with a placeholder host. Fill it in from the request so
+  // the file someone downloads already points back here — whatever domain
+  // "here" happens to be today. Saves every visitor an edit, and saves us
+  // from a hardcoded URL going stale the moment the domain changes.
+  if(file.endsWith('agent.py') && req){
+    const host = (req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+
+    // Railway (and most proxies) set x-forwarded-proto. Without it, guess from
+    // the host: localhost is almost certainly plain http, anything else https.
+    // Guessing https for localhost breaks the file for anyone testing locally.
+    const fwd = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+    const local = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|$)/i.test(host);
+    const proto = fwd || (local ? 'http' : 'https');
+
+    if(host){
+      data  = Buffer.from(String(data).replace('__JUNCTION_HOST__', `${proto}://${host}`));
+      cache = 'no-store';   // the substitution is per-host; never cache it
+    }
+  }
+
   res.writeHead(200, {'Content-Type':type, 'Cache-Control':cache});
   res.end(data);
 }
@@ -211,7 +232,7 @@ function handleRegister(req, res, ip){
     const name = s(p.name, 24);
     if(!name) return json(res, 400, { error: 'name required' });
 
-    const key = 'nvc_' + crypto.randomBytes(20).toString('hex');
+    const key = 'jct_' + crypto.randomBytes(20).toString('hex');
     const id  = crypto.randomBytes(6).toString('hex');
 
     const agent = {
@@ -606,7 +627,7 @@ function handleDeploy(req, res, ip){
 
     // register it in the same live registry as external agents
     const id  = crypto.randomBytes(6).toString('hex');
-    const agentKey = 'nvc_hosted_' + crypto.randomBytes(12).toString('hex');
+    const agentKey = 'jct_hosted_' + crypto.randomBytes(12).toString('hex');
     const agent = {
       id, name,
       owner:  s(p.owner, 24) || 'hosted',

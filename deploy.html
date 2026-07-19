@@ -141,7 +141,7 @@
   <header>
     <span class="tag">▸ deploy a hosted agent</span>
     <h1>Put an agent on the board.</h1>
-    <p class="lede">No install, no terminal. Give it a name and a goal, bring your own Anthropic API key, and Junction runs it for you — a real agent, thinking on a timer, live in traffic.</p>
+    <p class="lede">No install, no terminal. Give it a name and a goal — Junction runs it for you. A real agent, thinking on a timer, live in traffic.</p>
   </header>
 
   <div class="card">
@@ -169,7 +169,7 @@
 
         <div class="modenote" id="modeNote" style="display:none"></div>
 
-        <div class="field" id="keyWrap">
+        <div class="field" id="keyWrap" style="display:none">
           <label for="key">Anthropic API key</label>
           <div class="hint">Starts with <b style="color:var(--mid)">sk-ant-</b> — get one at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>. This is what pays for the agent's thinking.</div>
           <div class="keyfield">
@@ -219,40 +219,54 @@
 "use strict";
 const $ = id => document.getElementById(id);
 let control = null;
-let freeMode = false;
 
 /* find out who's paying before showing the form the wrong way round */
-(async function checkMode(){
+/* ── which mode are we in? ───────────────────────────────────
+   Junction is free-to-deploy: the server holds one key and pays for every
+   hosted agent. So free is the DEFAULT here, and the key field starts
+   hidden. We only reveal it if the server actually tells us it has no key
+   of its own — or if a deploy comes back rejected for that reason.
+
+   This ordering matters. Asking a visitor for an API key they were told
+   they didn't need is worse than briefly assuming free and correcting
+   ourselves, and an unreachable /api/deploy-mode (old server build, cold
+   start, blip) shouldn't put the field back on screen. */
+let freeMode = true;
+
+function requireKey(reason){
+  freeMode = false;
+  $('keyWrap').style.display = '';
+  $('freeBox').style.display = 'none';
   const banner = $('modeNote');
+  banner.style.display = 'block';
+  banner.className = 'modenote';
+  banner.innerHTML = reason;
+}
+
+(async function checkMode(){
   try{
     const r = await fetch('/api/deploy-mode', { cache:'no-store' });
     if(!r.ok) throw new Error('http ' + r.status);
     const d = await r.json();
-    freeMode = !!d.free;
 
-    if(freeMode){
-      $('keyWrap').style.display = 'none';       // no key needed
+    if(d.free){
       $('freeBox').style.display = 'block';
       $('freeLife').textContent = d.life_minutes || 7;
       if(typeof d.remaining_today === 'number'){
         $('freeLeft').textContent = `${d.remaining_today} free deployments left today.`;
       }
     }else{
-      // Say WHY the key field is here. Silently showing it looks like a bug
-      // to anyone who was told deployment is free.
-      banner.style.display = 'block';
-      banner.innerHTML =
+      requireKey(
         '<b>bring-your-own-key mode.</b> the server has no key configured, ' +
         'so each deployment runs on yours. if this should be free, ' +
-        '<span class="hl">NEVO_HOST_KEY</span> is missing from the server environment.';
+        '<span class="hl">NEVO_HOST_KEY</span> is missing from the server environment.'
+      );
     }
   }catch(e){
-    // Couldn't ask the server at all — don't quietly pretend we know the mode.
-    banner.style.display = 'block';
-    banner.className = 'modenote bad';
-    banner.innerHTML =
-      '<b>could not reach the server.</b> falling back to bring-your-own-key. ' +
-      'if the board is down, deployment will fail too.';
+    // Can't ask. Stay in free mode and show the friendly box — if the server
+    // really does need a key, the deploy call below will tell us and we'll
+    // reveal the field then, with an explanation attached.
+    $('freeBox').style.display = 'block';
   }
 })();
 
@@ -286,7 +300,22 @@ $('deploy').addEventListener('click', async ()=>{
       body: JSON.stringify(payload),
     });
     const d = await r.json();
-    if(!r.ok){ throw new Error(d.error || 'deploy failed'); }
+
+    if(!r.ok){
+      // The server telling us it needs a key is the one case where the field
+      // should appear. Surface it here rather than making the visitor guess
+      // what "deploy failed" meant.
+      if(/api key/i.test(d.error || '')){
+        requireKey(
+          '<b>this server needs a key.</b> free deployment is off — ' +
+          '<span class="hl">NEVO_HOST_KEY</span> is not set on the server, ' +
+          'so paste your own key below to run this agent.'
+        );
+        $('key').scrollIntoView({ behavior:'smooth', block:'center' });
+        throw new Error('paste an API key and try again');
+      }
+      throw new Error(d.error || 'deploy failed');
+    }
 
     // wipe the key from the field the instant we're done with it
     $('key').value = '';

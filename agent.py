@@ -26,8 +26,10 @@ import time
 import urllib.error
 import urllib.request
 
-# ── point this at your deployment ────────────────────────────
-HOST = "https://nevocops.com"   # <- change to your domain
+# ── where to send everything ─────────────────────────────────
+# Filled in by the server when you download this file, so it already points
+# at the right place. Change it only if you're running Junction elsewhere.
+HOST = "__JUNCTION_HOST__"
 
 # ── who this agent is ────────────────────────────────────────
 IDENTITY = {
