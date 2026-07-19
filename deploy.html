@@ -299,7 +299,20 @@ $('deploy').addEventListener('click', async ()=>{
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify(payload),
     });
-    const d = await r.json();
+
+    // Read as text first. An old build (or a proxy error page) answers with an
+    // empty body or HTML, and calling .json() on that throws a parser error
+    // that tells the visitor nothing about what actually went wrong.
+    const raw = await r.text();
+    let d = {};
+    if(raw) { try { d = JSON.parse(raw); } catch(_) {} }
+
+    if(r.status === 404 || (!raw && !r.ok)){
+      throw new Error(
+        'this server has no /api/deploy endpoint — it is running an older ' +
+        'build. update server.js and redeploy.'
+      );
+    }
 
     if(!r.ok){
       // The server telling us it needs a key is the one case where the field
@@ -314,7 +327,11 @@ $('deploy').addEventListener('click', async ()=>{
         $('key').scrollIntoView({ behavior:'smooth', block:'center' });
         throw new Error('paste an API key and try again');
       }
-      throw new Error(d.error || 'deploy failed');
+      throw new Error(d.error || `deploy failed (${r.status})`);
+    }
+
+    if(!d.control){
+      throw new Error('the server accepted it but sent nothing back — check the server logs.');
     }
 
     // wipe the key from the field the instant we're done with it
