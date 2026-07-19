@@ -148,13 +148,27 @@ const REG = {
   started: Date.now(),
 };
 
+/* ── environment ─────────────────────────────────────────────
+   Variables were originally NEVO_* and are now JUNCTION_*. Read the new
+   name first and fall back to the old one, so an existing deployment keeps
+   working through the rename instead of silently losing its config — a
+   server that quietly forgets its spending limits is the worst possible
+   way to discover a typo. */
+function envStr(name, dflt = ''){
+  return process.env['JUNCTION_' + name] || process.env['NEVO_' + name] || dflt;
+}
+function envInt(name, dflt){
+  const v = parseInt(envStr(name, ''), 10);
+  return Number.isFinite(v) ? v : dflt;
+}
+
 const LIVE_CFG = {
-  STALE_MS:      parseInt(process.env.NEVO_STALE_MS      || '45000', 10), // no heartbeat -> offline
-  DROP_MS:       parseInt(process.env.NEVO_DROP_MS       || '300000',10), // no heartbeat -> removed
-  MAX_AGENTS:    parseInt(process.env.NEVO_MAX_AGENTS    || '500',   10),
-  MAX_EVENTS:    parseInt(process.env.NEVO_MAX_EVENTS    || '300',   10),
-  HB_PER_MIN:    parseInt(process.env.NEVO_HB_PER_MIN    || '60',    10), // per agent
-  REG_PER_HOUR:  parseInt(process.env.NEVO_REG_PER_HOUR  || '10',    10), // per ip
+  STALE_MS:      envInt('STALE_MS', 45000), // no heartbeat -> offline
+  DROP_MS:       envInt('DROP_MS', 300000), // no heartbeat -> removed
+  MAX_AGENTS:    envInt('MAX_AGENTS', 500),
+  MAX_EVENTS:    envInt('MAX_EVENTS', 300),
+  HB_PER_MIN:    envInt('HB_PER_MIN', 60), // per agent
+  REG_PER_HOUR:  envInt('REG_PER_HOUR', 10), // per ip
 };
 
 /* ── sanitising ─────────────────────────────────────────────
@@ -492,7 +506,7 @@ const HOSTED = new Map();   // deployId -> { key, timer, agentKey, spend... }
    handles both, so a missing volume degrades quietly instead of crashing.
 ============================================================ */
 
-const ROSTER_DIR  = process.env.NEVO_DATA_DIR || '/data';
+const ROSTER_DIR  = envStr('DATA_DIR', '/data');
 const ROSTER_FILE = path.join(ROSTER_DIR, 'roster.json');
 
 let ROSTER = [];        // [{ slug, name, owner, goal, first, last, runs }]
@@ -556,21 +570,22 @@ function rosterRecord(name, owner, goal){
 
 
 const HOST_CFG = {
-  // FREE MODE: when NEVO_HOST_KEY is set, visitors don't need their own key —
+  // FREE MODE: when JUNCTION_HOST_KEY (or the legacy NEVO_HOST_KEY) is set,
+  // visitors don't need their own key —
   // the server pays with yours. Guard rails matter more here than anywhere
   // else on this whole project, because you are handing strangers the ability
   // to spend your money. Every limit below is a wall between a curious visitor
   // and your credit-card statement.
-  SERVER_KEY:     process.env.NEVO_HOST_KEY || '',          // your key, from Railway. NEVER in code.
-  FREE_MODE:      !!process.env.NEVO_HOST_KEY,              // free the moment a server key exists
+  SERVER_KEY:     envStr('HOST_KEY'),          // your key, from Railway. NEVER in code.
+  FREE_MODE:      !!envStr('HOST_KEY'),              // free the moment a server key exists
 
-  MAX_HOSTED:     parseInt(process.env.NEVO_MAX_HOSTED     || '20',   10),  // agents alive at once
-  THINK_MS:       parseInt(process.env.NEVO_THINK_MS       || '15000',10),  // one thought / 15s
-  MAX_THOUGHTS:   parseInt(process.env.NEVO_HOST_MAX       || '30',   10),  // ~7 min life, then retire
-  MODEL:          process.env.NEVO_HOST_MODEL || 'claude-haiku-4-5',
-  MAX_TOKENS:     parseInt(process.env.NEVO_HOST_TOKENS    || '100',  10),
-  DEPLOY_PER_HR:  parseInt(process.env.NEVO_DEPLOY_PER_HR  || '2',    10),  // per ip
-  GLOBAL_PER_DAY: parseInt(process.env.NEVO_HOST_DAY       || '200',  10),  // THE ceiling. all visitors, all day.
+  MAX_HOSTED:     envInt('MAX_HOSTED', 20),  // agents alive at once
+  THINK_MS:       envInt('THINK_MS', 15000),  // one thought / 15s
+  MAX_THOUGHTS:   envInt('HOST_MAX', 30),  // ~7 min life, then retire
+  MODEL:          envStr('HOST_MODEL', 'claude-haiku-4-5'),
+  MAX_TOKENS:     envInt('HOST_TOKENS', 100),
+  DEPLOY_PER_HR:  envInt('DEPLOY_PER_HR', 2),  // per ip
+  GLOBAL_PER_DAY: envInt('HOST_DAY', 200),  // THE ceiling. all visitors, all day.
 };
 
 // count deploys per day so the free tier has a hard floor under the spend
@@ -853,5 +868,9 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`            POST /api/register  -> get a key`);
   console.log(`            POST /api/heartbeat -> stream telemetry`);
   console.log(`            GET  /api/world     -> what the board reads`);
+  const keyVar = process.env.JUNCTION_HOST_KEY ? 'JUNCTION_HOST_KEY'
+               : process.env.NEVO_HOST_KEY     ? 'NEVO_HOST_KEY (legacy name — still works)'
+               : null;
   console.log(`  hosted:   ${HOST_CFG.FREE_MODE ? 'FREE MODE (server pays) - ' + HOST_CFG.GLOBAL_PER_DAY + '/day, ' + HOST_CFG.MAX_THOUGHTS + ' thoughts each' : 'BYOK (visitor pays)'}`);
+  console.log(`            key from: ${keyVar || 'nothing set — visitors must bring their own'}`);
 });
