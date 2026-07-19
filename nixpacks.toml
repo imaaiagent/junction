@@ -1,0 +1,14 @@
+# Railway build configuration.
+#
+# Without this, Railway inspects the repo, sees a pile of .html files, and
+# decides it's a static site — then serves it with Caddy. Caddy can hand out
+# index.html just fine, but it has no idea what to do with server.js, so every
+# /api/* route comes back 404 and the whole live registry silently dies.
+#
+# Pinning the provider to Node removes the guesswork.
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[start]
+cmd = "node server.js"
