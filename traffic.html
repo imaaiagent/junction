@@ -8,6 +8,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<!-- Country borders are fetched at runtime from a CDN. No library tag here
+     on purpose: the TopoJSON decoder is ~40 lines and lives in this file, so
+     there is exactly one network dependency instead of two. -->
 <style>
   :root{
     --bg:      #000000;
@@ -103,7 +107,7 @@
 
   .grid{
     flex:1;display:grid;
-    grid-template-columns:230px 1fr 290px;
+    grid-template-columns:220px 1fr 330px;
     min-height:0;
   }
   .col{display:flex;flex-direction:column;min-height:0;min-width:0}
@@ -137,12 +141,18 @@
   /* sparkline */
   .spark{font-family:var(--fa);color:var(--dim);font-size:11px;letter-spacing:-1px;white-space:pre;overflow:hidden}
 
-  /* ── feed ── */
-  #feed{font-size:11px;line-height:1.7}
-  .ev{display:flex;gap:8px;white-space:nowrap;overflow:hidden}
-  .ev .t{color:var(--line-2);flex-shrink:0}
-  .ev .a{color:var(--wht);flex-shrink:0}
-  .ev .x{overflow:hidden;text-overflow:ellipsis}
+  /* ── feed ──
+     Lives in the narrow right column now, so it wraps onto two lines rather
+     than truncating everything into uselessness. */
+  #feed{font-size:11px;line-height:1.55}
+  .ev{
+    display:grid;grid-template-columns:auto 1fr;gap:0 7px;
+    padding:2px 0;border-bottom:1px solid rgba(22,51,22,.5);
+  }
+  .ev:last-child{border-bottom:0}
+  .ev .t{color:var(--line-2);font-size:10px}
+  .ev .a{color:var(--wht);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ev .x{grid-column:2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .ev.info .x{color:var(--mid)}
   .ev.ok   .x{color:var(--grn)}
   .ev.warn .x{color:var(--amb)}
@@ -174,36 +184,76 @@
   .st.idle{color:var(--dim)}
   .st.failed{color:var(--red)}
 
-  /* ── world map ─────────────────────────────────────────────── */
-  .worldmap{
-    font-family:var(--fa);white-space:pre;margin:0;
-    font-size:clamp(6px,1vw,11px);line-height:1.05;letter-spacing:0;
+  /* ── world map (SVG) ───────────────────────────────────────── */
+  .pb-map{
+    display:flex;flex-direction:column;align-items:stretch;justify-content:center;
+    padding:10px 12px;overflow:hidden;
   }
-  .worldmap .land{color:var(--line)}
-  .worldmap .pin{
-    font-weight:700;
-    text-shadow:0 0 7px currentColor;
+  .mapwrap{position:relative;flex:1;min-height:0;display:flex}
+  .mapmsg{
+    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:var(--dim);font-size:11px;text-align:center;line-height:1.8;padding:20px;
   }
-  .pin.s-online    {color:var(--mid)}
-  .pin.s-thinking  {color:var(--cyan)}
-  .pin.s-executing {color:var(--amb)}
-  .pin.s-idle      {color:var(--dim)}
-  .pin.s-failed    {color:var(--red)}
-  .pin.hot{
-    color:var(--grn-hot);
-    text-shadow:0 0 12px var(--grn),0 0 22px rgba(106,255,106,.6);
-    animation:pinFlare .9s ease-out;
+  .mapmsg.bad{color:var(--amb)}
+  .mapmsg .sm{color:var(--line-2);font-size:10px}
+  #mapSvg{
+    width:100%;height:100%;display:block;cursor:grab;
+    touch-action:none;   /* we handle drag ourselves */
+    user-select:none;
   }
-  @keyframes pinFlare{
-    0%  {transform:scale(1.5);filter:brightness(1.8)}
-    100%{transform:scale(1);  filter:none}
+
+  /* Land sits back until something is happening on it. Occupied regions come
+     forward — the map should read as "where is anything alive", not wallpaper. */
+  .land{
+    opacity:.22;
+    stroke:#000;stroke-width:1.2;
+    transition:opacity .45s;
   }
+  .land.on{opacity:.9;filter:drop-shadow(0 0 6px currentColor)}
+
+  .dot circle{transition:.3s}
+  .dot.hot circle{filter:drop-shadow(0 0 8px #6aff6a)}
+  .dot.hot{animation:dotFlare .9s ease-out}
+  @keyframes dotFlare{
+    0%  {transform:scale(1.45);transform-origin:center;filter:brightness(1.8)}
+    100%{transform:scale(1);   filter:none}
+  }
+  .dnum{
+    font-family:var(--f);font-size:9px;font-weight:700;
+    fill:#000;text-anchor:middle;pointer-events:none;
+  }
+
+  /* zoom controls */
+  .mapctl{
+    position:absolute;right:6px;bottom:6px;
+    display:flex;align-items:center;gap:4px;
+    background:rgba(0,0,0,.65);border:1px solid var(--line);padding:3px 5px;
+  }
+  .mapctl button{
+    width:20px;height:20px;line-height:1;
+    background:transparent;border:1px solid var(--line-2);
+    color:var(--mid);font-family:var(--f);font-size:12px;cursor:pointer;
+    transition:.15s;
+  }
+  .mapctl button:hover{border-color:var(--grn);color:var(--grn);background:var(--bg-2)}
+  .mapctl #zLevel{
+    color:var(--line-2);font-size:9px;margin-left:3px;min-width:26px;text-align:right;
+  }
+
+  /* legend */
+  .legend{
+    display:flex;flex-wrap:wrap;gap:3px 12px;justify-content:center;
+    margin-top:9px;font-size:9px;letter-spacing:.05em;flex-shrink:0;
+  }
+  .legend .lg{opacity:.3;transition:opacity .45s;white-space:nowrap;color:var(--dim)}
+  .legend .lg.on{opacity:1;color:var(--mid)}
+  .legend .sw{margin-right:4px}
 
   /* agents that reported no usable location — still real, just unplaceable */
   .offmap{
-    display:flex;flex-wrap:wrap;gap:5px 12px;align-items:center;
-    margin-top:8px;padding-top:7px;border-top:1px solid var(--line);
-    font-size:10px;
+    display:flex;flex-wrap:wrap;gap:5px 12px;align-items:center;justify-content:center;
+    margin-top:9px;padding-top:8px;border-top:1px solid var(--line);
+    font-size:10px;flex-shrink:0;
   }
   .offmap .ol{color:var(--line-2);letter-spacing:.14em;text-transform:uppercase}
   .offmap .ou{color:var(--dim);white-space:nowrap}
@@ -331,6 +381,10 @@
     .col.l .pane:nth-child(n+3){display:none}
     .col.r .pane:nth-child(n+2){display:none}
     .pb{max-height:150px}
+    /* the map needs real height or the SVG collapses to nothing — the blanket
+       150px cap above is fine for text panels but kills a vector map. */
+    .pb-map{max-height:none;height:220px}
+    .mapwrap{min-height:150px}
     #term{height:150px}
   }
 </style>
@@ -380,35 +434,35 @@
       </div>
     </div>
 
-    <!-- ── CENTER ── -->
+    <!-- ── CENTER: the map is the point of this screen ── -->
     <div class="col">
-      <div class="pane" style="flex:0 0 auto">
+      <div class="pane" style="flex:2.2">
         <div class="ph"><span>world map</span><span class="n" id="mapStat">—</span></div>
-        <div class="pb" id="world" style="padding:10px 12px"></div>
+        <div class="pb pb-map" id="world"></div>
       </div>
       <div class="pane" style="flex:1">
-        <div class="ph"><span>live world feed</span><span class="n"><span id="eps">0</span> ev/s</span></div>
-        <div class="pb" id="feed"></div>
-      </div>
-      <div class="pane">
-        <div class="ph"><span>thought stream</span><span class="n" id="thN">—</span></div>
-        <div class="pb" id="think"></div>
-      </div>
-      <div class="pane" style="flex:1.1">
         <div class="ph"><span>the board</span><span class="n" id="mapN">0 nodes</span></div>
         <div class="pb" id="map"></div>
+      </div>
+      <div class="pane" style="flex:0 0 auto">
+        <div class="ph"><span>thought stream</span><span class="n" id="thN">—</span></div>
+        <div class="pb" id="think" style="max-height:132px"></div>
       </div>
     </div>
 
     <!-- ── RIGHT ── -->
     <div class="col r">
+      <div class="pane" style="flex:0 0 auto">
+        <div class="ph"><span>live feed</span><span class="n"><span id="eps">0</span> ev/s</span></div>
+        <div class="pb" id="feed" style="max-height:230px"></div>
+      </div>
       <div class="pane">
         <div class="ph"><span>focused agent</span><span class="n" id="fname">—</span></div>
         <div class="pb" id="tel"></div>
       </div>
       <div class="pane" style="flex:0 0 auto">
         <div class="ph"><span>timeline</span></div>
-        <div class="pb" id="tl" style="max-height:130px"></div>
+        <div class="pb" id="tl" style="max-height:120px"></div>
       </div>
     </div>
 
@@ -609,131 +663,430 @@ function renderAgents(){
 /* ════════════════════════════════════════════════════════════
    THE WORLD MAP
 
-   Agents appear where they SAY they are. Location is self-reported through
-   the `location` field — we never infer it from an IP address, because a
-   hosted agent's IP is this server, not its owner's, and a map full of
-   confidently wrong dots is worse than one that admits what it doesn't know.
+   Vector, not characters — so it can be zoomed and panned without turning
+   into mush. The land is hand-drawn geometry rather than real border data:
+   accurate enough to recognise a continent, honest enough that nobody will
+   mistake it for a survey.
 
-   Anything unplaceable lands in the OFF-MAP row underneath, counted and
-   labelled. An agent with no location is still a real agent; it just isn't
-   somewhere we can draw.
+   Agents appear where they SAY they are. Location is self-reported through
+   the `location` field — never inferred from an IP address, because a hosted
+   agent's IP is this server, not its owner's, and a map full of confidently
+   wrong dots is worse than one that admits what it doesn't know.
    ════════════════════════════════════════════════════════════ */
 
-const MAP_ART = [
-  "                                                                    ",
-  "        ▄▄▄▄▄▄                          ▄▄▄▄▄▄▄▄▄▄▄▄                ",
-  "     ▄▄████████▄▄                   ▄▄████████████████▄▄▄           ",
-  "   ▄████████████▀                 ▄███████████████████████▄▄        ",
-  "  ████████████▀                  ████████████████████████████▄      ",
-  "   ▀██████████                  ▐██████▀▀   ▀████████████████▀      ",
-  "     ▀███████▌                   ▀████▌       ▀██████████▀▀         ",
-  "       ▀████▌                      ▀██▘         ▀▀████▀             ",
-  "         ▐██▖                    ▗▄▄▄▖             ▐██▌             ",
-  "          ▐█▌                   ▐█████▌             ▀▀              ",
-  "          ▐█▌                   ▐█████▌                             ",
-  "          ▝█▌                    ▀███▀            ▗▄▄▖              ",
-  "           ▀                      ▐█▌           ▗█████▖             ",
-  "                                  ▝█▘           ▐██████▌            ",
-  "                                                 ▀█████▘            ",
-  "                                                   ▀▀               ",
-];
+/* ── real world geometry ─────────────────────────────────────
+   Country borders come from Natural Earth via the world-atlas package —
+   actual survey data, not shapes drawn from memory. It arrives as TopoJSON
+   (about half the size of the equivalent GeoJSON) and is expanded into paths
+   in the browser.
 
-/* Known places -> [row, col] on the art above. Aliases share coordinates so
-   "sg", "singapore" and "ap-southeast-1" all land in the same spot. */
+   Two things can go wrong, and both are handled out loud rather than leaving
+   an empty rectangle: the CDN can be unreachable, or the file can arrive
+   malformed. In either case the panel says so.                              */
+
+let WORLD_PATHS = null;    // [{ d, region }] once loaded
+let worldState = 'loading';  // loading | ready | failed
+
+/* Which region a country belongs to, by ISO numeric id. Anything unlisted
+   falls back to 'other' and is drawn in a neutral colour — better than
+   guessing a continent wrong. */
+const REGION_OF = {
+  // north america
+  840:'north-america', 124:'north-america', 484:'north-america', 304:'greenland',
+  // south america
+  76:'south-america', 32:'south-america', 152:'south-america', 170:'south-america',
+  604:'south-america', 862:'south-america', 218:'south-america', 68:'south-america',
+  600:'south-america', 858:'south-america',
+  // europe
+  826:'europe', 250:'europe', 276:'europe', 724:'europe', 380:'europe',
+  528:'europe', 56:'europe', 616:'europe', 752:'europe', 578:'europe',
+  246:'europe', 208:'europe', 372:'europe', 620:'europe', 300:'europe',
+  203:'europe', 348:'europe', 40:'europe', 756:'europe', 442:'europe',
+  // russia / central asia
+  643:'russia', 398:'russia', 860:'russia', 795:'russia', 762:'russia',
+  417:'russia', 496:'russia', 804:'russia', 112:'russia',
+  // middle east
+  792:'middle-east', 364:'middle-east', 682:'middle-east', 784:'middle-east',
+  368:'middle-east', 400:'middle-east', 376:'middle-east', 760:'middle-east',
+  422:'middle-east', 512:'middle-east', 634:'middle-east', 887:'middle-east',
+  414:'middle-east', 48:'middle-east', 4:'middle-east', 586:'middle-east',
+  // africa
+  818:'africa', 710:'africa', 566:'africa', 404:'africa', 231:'africa',
+  12:'africa', 504:'africa', 729:'africa', 148:'africa', 466:'africa',
+  562:'africa', 686:'africa', 854:'africa', 288:'africa', 384:'africa',
+  120:'africa', 180:'africa', 24:'africa', 508:'africa', 894:'africa',
+  716:'africa', 72:'africa', 516:'africa', 800:'africa', 834:'africa',
+  646:'africa', 108:'africa', 262:'africa', 232:'africa', 706:'africa',
+  788:'africa', 434:'africa', 478:'africa', 226:'africa', 140:'africa',
+  178:'africa', 270:'africa', 324:'africa', 624:'africa', 430:'africa',
+  694:'africa', 450:'africa', 174:'africa',
+  // india / south asia
+  356:'india', 586:'india', 50:'india', 144:'india', 524:'india', 64:'india',
+  // china
+  156:'china', 158:'china', 496:'china', 344:'china',
+  // japan / korea
+  392:'japan', 410:'japan', 408:'japan',
+  // se asia
+  360:'sea', 458:'sea', 764:'sea', 704:'sea', 608:'sea', 104:'sea',
+  116:'sea', 418:'sea', 702:'sea', 626:'sea', 96:'sea',
+  // oceania
+  36:'oceania', 554:'oceania', 598:'oceania', 242:'oceania', 90:'oceania',
+  548:'oceania',
+};
+
+const REGION_META = {
+  'north-america':{ c:'#4a9eff', label:'north america' },
+  'south-america':{ c:'#ff6ad5', label:'south america' },
+  'greenland':    { c:'#7de8ff', label:'greenland' },
+  'europe':       { c:'#ffd633', label:'europe' },
+  'russia':       { c:'#ff8c42', label:'russia · c.asia' },
+  'middle-east':  { c:'#c77dff', label:'middle east' },
+  'africa':       { c:'#6aff6a', label:'africa' },
+  'india':        { c:'#ff5555', label:'india' },
+  'china':        { c:'#ffb347', label:'china' },
+  'japan':        { c:'#ff4d94', label:'japan · korea' },
+  'sea':          { c:'#4affc4', label:'se asia' },
+  'oceania':      { c:'#5affff', label:'oceania' },
+  'other':        { c:'#4d8f4d', label:'elsewhere' },
+};
+
+/* equirectangular: lon/lat -> the 0-1000 x 0-500 space the SVG uses */
+function project(lon, lat){
+  return [ (lon + 180) / 360 * MAP_W, (90 - lat) / 180 * MAP_H ];
+}
+
+function ringToPath(ring){
+  let d = '';
+  for(let i = 0; i < ring.length; i++){
+    const [x, y] = project(ring[i][0], ring[i][1]);
+    d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+  }
+  return d + 'Z';
+}
+
+function featureToPath(geom){
+  if(!geom) return '';
+  if(geom.type === 'Polygon')      return geom.coordinates.map(ringToPath).join(' ');
+  if(geom.type === 'MultiPolygon') return geom.coordinates.map(p => p.map(ringToPath).join(' ')).join(' ');
+  return '';
+}
+
+/* ── minimal TopoJSON decoder ────────────────────────────────
+   TopoJSON stores shared borders once as "arcs" with delta-encoded,
+   quantised coordinates. Expanding it is short enough to do here, which
+   removes a whole script tag that could fail to load independently. */
+function topoDecodeArcs(topo){
+  const { scale, translate } = topo.transform || { scale:[1,1], translate:[0,0] };
+  return topo.arcs.map(arc => {
+    let x = 0, y = 0;
+    return arc.map(([dx, dy]) => {
+      x += dx; y += dy;
+      return [ x * scale[0] + translate[0], y * scale[1] + translate[1] ];
+    });
+  });
+}
+
+/* A negative index means "this arc, reversed" — encoded as ~i. */
+function topoRing(arcIdx, arcs){
+  const out = [];
+  for(const i of arcIdx){
+    const a = i < 0 ? arcs[~i].slice().reverse() : arcs[i];
+    // arcs share endpoints; drop the duplicate when joining
+    out.push(...(out.length ? a.slice(1) : a));
+  }
+  return out;
+}
+
+function topoGeometry(g, arcs){
+  if(g.type === 'Polygon')
+    return { type:'Polygon', coordinates: g.arcs.map(r => topoRing(r, arcs)) };
+  if(g.type === 'MultiPolygon')
+    return { type:'MultiPolygon', coordinates: g.arcs.map(p => p.map(r => topoRing(r, arcs))) };
+  return null;
+}
+
+async function loadWorld(){
+  try{
+    const r = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+    if(!r.ok) throw new Error('http ' + r.status);
+    const topo = await r.json();
+
+    const obj = topo.objects && topo.objects.countries;
+    if(!obj || !obj.geometries) throw new Error('unexpected file shape');
+
+    const arcs = topoDecodeArcs(topo);
+
+    WORLD_PATHS = obj.geometries.map(g => ({
+      d: featureToPath(topoGeometry(g, arcs)),
+      region: REGION_OF[+g.id] || 'other',
+      name: (g.properties && g.properties.name) || '',
+    })).filter(p => p.d);
+
+    if(!WORLD_PATHS.length) throw new Error('no shapes decoded');
+    worldState = 'ready';
+  }catch(e){
+    console.error('[map] could not load country borders:', e);
+    worldState = 'failed';
+  }
+  renderWorld();
+}
+
+/* Where places sit, in the same 0-1000 x 0-500 space as the land above.
+   Each entry also names the region it belongs to, so a dot can light up the
+   right landmass. */
 const PLACES = {
-  'san-francisco':[5,6], 'sf':[5,6], 'us-west':[5,6], 'seattle':[4,6],
-  'mexico-city':[7,10], 'mx':[7,10],
-  'toronto':[4,14], 'ca':[4,14],
-  'new-york':[5,15], 'nyc':[5,15], 'us-east':[5,15], 'usa':[5,14], 'us':[5,14],
-  'sao-paulo':[11,20], 'brazil':[11,20], 'br':[11,20],
-  'london':[4,30], 'uk':[4,30], 'eu-west':[4,30],
-  'paris':[4,31], 'fr':[4,31],
-  'berlin':[4,33], 'de':[4,33], 'germany':[4,33], 'eu-central':[4,33],
-  'lagos':[9,32], 'nigeria':[9,32],
-  'johannesburg':[12,35], 'south-africa':[12,35], 'za':[12,35],
-  'cairo':[7,36], 'egypt':[7,36],
-  'dubai':[7,39], 'uae':[7,39], 'me-south':[7,39],
-  'mumbai':[8,43], 'india':[8,43], 'in':[8,43], 'ap-south':[8,43],
-  'singapore':[10,45], 'sg':[10,45], 'ap-southeast':[10,45],
-  'jakarta':[10,46], 'indonesia':[10,46], 'id':[10,46],
-  'sydney':[13,55], 'australia':[13,55], 'au':[13,55],
-  'tokyo':[6,56], 'japan':[6,56], 'jp':[6,56], 'ap-northeast':[6,56],
-  'seoul':[5,55], 'kr':[5,55],
-  'beijing':[5,52], 'china':[5,52], 'cn':[5,52], 'shanghai':[6,53],
+  'san-francisco':[72,120,'north-america'],  'sf':[72,120,'north-america'],
+  'us-west':[72,120,'north-america'],        'seattle':[76,96,'north-america'],
+  'los-angeles':[82,138,'north-america'],
+  'mexico-city':[140,222,'north-america'],   'mx':[140,222,'north-america'],
+  'toronto':[196,110,'north-america'],       'ca':[196,110,'north-america'],
+  'canada':[160,80,'north-america'],
+  'new-york':[218,128,'north-america'],      'nyc':[218,128,'north-america'],
+  'us-east':[218,128,'north-america'],       'usa':[170,130,'north-america'],
+  'us':[170,130,'north-america'],            'chicago':[188,116,'north-america'],
+
+  'sao-paulo':[224,376,'south-america'],     'brazil':[224,376,'south-america'],
+  'br':[224,376,'south-america'],
+  'buenos-aires':[206,430,'south-america'],  'argentina':[206,430,'south-america'],
+  'bogota':[192,300,'south-america'],        'colombia':[192,300,'south-america'],
+  'santiago':[192,432,'south-america'],      'chile':[192,432,'south-america'],
+  'lima':[186,352,'south-america'],
+
+  'london':[462,86,'europe'],   'uk':[462,86,'europe'],   'eu-west':[462,86,'europe'],
+  'ireland':[446,88,'europe'],  'paris':[470,100,'europe'],'fr':[470,100,'europe'],
+  'france':[470,100,'europe'],  'berlin':[494,80,'europe'],'de':[494,80,'europe'],
+  'germany':[494,80,'europe'],  'eu-central':[494,80,'europe'],
+  'madrid':[452,114,'europe'],  'es':[452,114,'europe'],  'spain':[452,114,'europe'],
+  'rome':[492,110,'europe'],    'it':[492,110,'europe'],  'italy':[492,110,'europe'],
+  'amsterdam':[474,84,'europe'],'nl':[474,84,'europe'],
+  'stockholm':[508,70,'europe'],'se':[508,70,'europe'],
+  'warsaw':[512,84,'europe'],   'pl':[512,84,'europe'],
+
+  'moscow':[572,84,'russia'],   'ru':[572,84,'russia'],   'russia':[700,86,'russia'],
+  'eu-north':[556,66,'russia'],
+
+  'dubai':[576,172,'middle-east'],   'uae':[576,172,'middle-east'],
+  'me-south':[576,172,'middle-east'],'istanbul':[548,150,'middle-east'],
+  'tr':[548,150,'middle-east'],      'turkey':[548,150,'middle-east'],
+  'tehran':[576,156,'middle-east'],  'ir':[576,156,'middle-east'],
+  'riyadh':[566,186,'middle-east'],  'sa':[566,186,'middle-east'],
+  'tel-aviv':[540,160,'middle-east'],'il':[540,160,'middle-east'],
+
+  'cairo':[512,192,'africa'],        'egypt':[512,192,'africa'],
+  'lagos':[476,258,'africa'],        'nigeria':[476,258,'africa'],
+  'ng':[476,258,'africa'],
+  'nairobi':[540,282,'africa'],      'kenya':[540,282,'africa'],
+  'johannesburg':[520,330,'africa'], 'south-africa':[520,330,'africa'],
+  'za':[520,330,'africa'],           'cape-town':[500,342,'africa'],
+  'af-south':[520,330,'africa'],
+
+  'mumbai':[636,200,'india'],  'india':[646,190,'india'],  'in':[646,190,'india'],
+  'ap-south':[636,200,'india'],'delhi':[648,168,'india'],
+  'bangalore':[648,222,'india'],
+
+  'beijing':[780,138,'china'],  'china':[756,150,'china'],  'cn':[756,150,'china'],
+  'shanghai':[800,158,'china'], 'shenzhen':[786,180,'china'],
+  'hong-kong':[790,182,'china'],'hk':[790,182,'china'],
+
+  'tokyo':[874,132,'japan'],   'japan':[874,132,'japan'],  'jp':[874,132,'japan'],
+  'ap-northeast':[874,132,'japan'],
+  'seoul':[858,128,'japan'],   'kr':[858,128,'japan'],     'korea':[858,128,'japan'],
+
+  'singapore':[740,262,'sea'],  'sg':[740,262,'sea'],
+  'ap-southeast':[740,262,'sea'],
+  'jakarta':[742,274,'sea'],    'indonesia':[742,274,'sea'], 'id':[742,274,'sea'],
+  'bangkok':[722,232,'sea'],    'th':[722,232,'sea'],
+  'manila':[772,238,'sea'],     'ph':[772,238,'sea'],
+  'hanoi':[726,220,'sea'],      'vn':[726,220,'sea'],
+  'kuala-lumpur':[734,258,'sea'],'my':[734,258,'sea'],
+
+  'sydney':[866,376,'oceania'],  'australia':[840,356,'oceania'],
+  'au':[840,356,'oceania'],      'melbourne':[850,388,'oceania'],
+  'auckland':[900,382,'oceania'],'nz':[900,382,'oceania'],
 };
 
 const STATUS_DOT = {
   online:'●', thinking:'◆', executing:'▲', idle:'○', failed:'✕',
+};
+const STATUS_COL = {
+  online:'#7fd47f', thinking:'#5affff', executing:'#ffb347',
+  idle:'#4d8f4d',   failed:'#ff5555',
 };
 
 function placeOf(loc){
   if(!loc) return null;
   const k = String(loc).toLowerCase().trim().replace(/[\s_]+/g,'-');
   if(PLACES[k]) return PLACES[k];
-  // tolerate "jakarta, id" / "aws:ap-south-1" style values
   for(const key of Object.keys(PLACES)){
     if(k.startsWith(key) || k.includes(key)) return PLACES[key];
   }
   return null;
 }
 
+/* view state — persists across polls so the map doesn't jump while you're
+   looking at something */
+let mapView = { z:1, x:0, y:0 };
+const MAP_W = 1000, MAP_H = 500;
+
+function mapZoom(f){
+  const z = Math.max(1, Math.min(6, mapView.z * f));
+  mapView.z = z;
+  clampPan();
+  applyView();
+}
+function mapReset(){ mapView = { z:1, x:0, y:0 }; applyView(); }
+
+function clampPan(){
+  // don't let the map be dragged off into empty space
+  const span = 1 / mapView.z;
+  const max  = (1 - span) / 2;
+  mapView.x = Math.max(-max, Math.min(max, mapView.x));
+  mapView.y = Math.max(-max, Math.min(max, mapView.y));
+}
+function applyView(){
+  const svg = document.getElementById('mapSvg');
+  if(!svg) return;
+  const w = MAP_W / mapView.z, h = MAP_H / mapView.z;
+  const x = (MAP_W - w) / 2 + mapView.x * MAP_W;
+  const y = (MAP_H - h) / 2 + mapView.y * MAP_H;
+  svg.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+  const zl = document.getElementById('zLevel');
+  if(zl) zl.textContent = mapView.z.toFixed(1) + '×';
+}
+
 function renderWorld(){
   const host = $('world');
   if(!host) return;
 
-  const grid = MAP_ART.map(r => r.split(''));
-  const H = grid.length, W = grid[0].length;
+  // still fetching, or the fetch failed — say which, don't show a blank box
+  if(worldState !== 'ready'){
+    host.innerHTML = worldState === 'loading'
+      ? `<div class="mapmsg">loading country borders…</div>`
+      : `<div class="mapmsg bad">could not load the map.<br>
+           <span class="sm">border data comes from a CDN — check the connection,
+           or add the script tag from the setup notes.</span></div>`;
+    $('mapStat').textContent = worldState === 'loading' ? 'loading' : 'map unavailable';
+    return;
+  }
 
-  const placed = [];
-  const offmap = [];
-
+  const placed = [], offmap = [];
   AG.forEach(a => {
     const p = placeOf(a.loc);
-    if(p) placed.push({ a, r:p[0], c:p[1] });
+    if(p) placed.push({ a, x:p[0], y:p[1], region:p[2] });
     else  offmap.push(a);
   });
 
-  // stack agents that share a cell so they don't overwrite each other
-  const cell = new Map();
-  placed.forEach(({a,r,c}) => {
-    const key = r + ':' + c;
-    if(!cell.has(key)) cell.set(key, []);
-    cell.get(key).push(a);
+  const spot = new Map();
+  placed.forEach(p => {
+    const key = p.x + ':' + p.y;
+    if(!spot.has(key)) spot.set(key, []);
+    spot.get(key).push(p);
   });
 
+  const busy = new Set(placed.map(p => p.region));
   const live = EV[0] ? EV[0].a : null;
-  let out = grid.map(r => r.map(ch => `<span class="land">${ch}</span>`));
 
-  for(const [key, list] of cell){
-    const [r, c] = key.split(':').map(Number);
-    if(r < 0 || r >= H || c < 0 || c >= W) continue;
+  const land = WORLD_PATHS.map(p => {
+    const meta = REGION_META[p.region] || REGION_META.other;
+    const on = busy.has(p.region);
+    return `<path d="${p.d}" fill="${meta.c}" class="land${on ? ' on' : ''}">`
+         + `<title>${esc(p.name)}</title></path>`;
+  }).join('');
 
-    const top = list[0];
-    const hot = list.some(x => x.name === live);
-    const dot = list.length > 1 ? String(Math.min(9, list.length))
-                                : (STATUS_DOT[top.status] || '●');
-    const names = list.map(x => `${x.name} (${x.status})`).join(', ');
+  const dots = [...spot.entries()].map(([key, list]) => {
+    const { x, y } = list[0];
+    const top = list[0].a;
+    const hot = list.some(p => p.a.name === live);
+    const col = STATUS_COL[top.status] || '#7fd47f';
+    const label = list.length > 1 ? String(Math.min(9, list.length)) : '';
+    const names = list.map(p => `${p.a.name} (${p.a.status})`).join(', ');
+    return `<g class="dot${hot ? ' hot' : ''}">
+      <title>${esc(names)} — ${esc(top.loc)}</title>
+      <circle cx="${x}" cy="${y}" r="9" fill="${col}" opacity=".2"/>
+      <circle cx="${x}" cy="${y}" r="3.5" fill="${col}"/>
+      ${label ? `<text x="${x}" y="${y+3}" class="dnum">${label}</text>` : ''}
+    </g>`;
+  }).join('');
 
-    out[r][c] =
-      `<span class="pin s-${esc(top.status)}${hot ? ' hot' : ''}" ` +
-      `title="${esc(names)} — ${esc(top.loc)}">${dot}</span>`;
-  }
+  // only show regions that actually exist in the loaded data
+  const present = new Set(WORLD_PATHS.map(p => p.region));
+  const legend = Object.entries(REGION_META)
+    .filter(([k]) => present.has(k))
+    .map(([k, v]) =>
+      `<span class="lg${busy.has(k) ? ' on' : ''}">`
+      + `<span class="sw" style="color:${v.c}">█</span>${esc(v.label)}</span>`
+    ).join('');
 
-  host.innerHTML =
-    `<pre class="worldmap">${out.map(r => r.join('')).join('\n')}</pre>` +
-    (offmap.length
+  host.innerHTML = `
+    <div class="mapwrap">
+      <svg id="mapSvg" viewBox="0 0 ${MAP_W} ${MAP_H}" preserveAspectRatio="xMidYMid meet">
+        <g class="landg">${land}</g>
+        <g class="dotg">${dots}</g>
+      </svg>
+      <div class="mapctl">
+        <button type="button" data-z="in"  title="zoom in">+</button>
+        <button type="button" data-z="out" title="zoom out">−</button>
+        <button type="button" data-z="rst" title="reset">⟲</button>
+        <span id="zLevel">${mapView.z.toFixed(1)}×</span>
+      </div>
+    </div>
+    <div class="legend">${legend}</div>
+    ${offmap.length
       ? `<div class="offmap"><span class="ol">off-map</span>` +
         offmap.slice(0,8).map(a =>
           `<span class="ou s-${esc(a.status)}" title="${esc(a.name)} — no location reported">` +
           `${STATUS_DOT[a.status] || '●'} ${esc(a.name)}</span>`).join('') +
         (offmap.length > 8 ? `<span class="ou">+${offmap.length-8} more</span>` : '') +
         `</div>`
-      : '');
+      : ''}`;
 
-  const n = placed.length;
+  wireMap();
+  applyView();
+
   $('mapStat').textContent = AG.length === 0
     ? 'nobody connected'
-    : `${n} placed · ${offmap.length} off-map`;
+    : `${placed.length} placed · ${offmap.length} off-map · ${busy.size} region${busy.size===1?'':'s'}`;
+}
+
+/* zoom buttons, scroll wheel and drag-to-pan */
+function wireMap(){
+  const wrap = document.querySelector('.mapwrap');
+  const svg  = document.getElementById('mapSvg');
+  if(!wrap || !svg) return;
+
+  wrap.querySelectorAll('.mapctl button').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      const k = b.dataset.z;
+      if(k === 'in')  mapZoom(1.5);
+      if(k === 'out') mapZoom(1/1.5);
+      if(k === 'rst') mapReset();
+    };
+  });
+
+  svg.onwheel = e => {
+    e.preventDefault();
+    mapZoom(e.deltaY < 0 ? 1.18 : 1/1.18);
+  };
+
+  let drag = null;
+  svg.onpointerdown = e => {
+    drag = { x:e.clientX, y:e.clientY, ox:mapView.x, oy:mapView.y };
+    svg.setPointerCapture(e.pointerId);
+    svg.style.cursor = 'grabbing';
+  };
+  svg.onpointermove = e => {
+    if(!drag) return;
+    const r = svg.getBoundingClientRect();
+    mapView.x = drag.ox - (e.clientX - drag.x) / r.width  / mapView.z;
+    mapView.y = drag.oy - (e.clientY - drag.y) / r.height / mapView.z;
+    clampPan();
+    applyView();
+  };
+  svg.onpointerup = svg.onpointercancel = () => {
+    drag = null;
+    svg.style.cursor = 'grab';
+  };
 }
 
 function renderFeed(){
@@ -1407,6 +1760,7 @@ function start(){
     if(epsWin.length > 8) epsWin.shift();
   }, 1000);
 
+  loadWorld();          // country borders, then the first real render
   poll();
   setInterval(poll, 1500);
 }
