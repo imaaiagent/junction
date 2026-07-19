@@ -464,7 +464,7 @@ function readBody(req, res, cap, cb){
 function cors(res){
   res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Junction-Session');
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -489,6 +489,178 @@ function cors(res){
    one in a response body — stop. That is how people get their accounts
    drained and your name attached to it.
 ============================================================ */
+
+/* ════════════════════════════════════════════════════════════
+   WALLET SIGN-IN (Solana / Phantom)
+
+   Nothing secret is ever stored here. There is no password, no email, no
+   OAuth token — the visitor proves who they are by signing a one-off random
+   message with their wallet, and the server checks the signature against
+   their public key. If this server is breached tomorrow, the attacker gets
+   a list of public addresses, which are public by definition.
+
+   Ed25519 verification is built into Node, so this adds no dependency. The
+   base58 decoder below is ~25 lines for the same reason: a wallet login is
+   exactly the wrong place to be pulling in code we haven't read.
+
+   IMPORTANT: this asks for a SIGNATURE, never a transaction. It cannot move
+   funds and costs no gas. The deploy page says so in plain words, because
+   "connect your wallet" has been the opening line of enough scams that
+   people are right to hesitate.
+============================================================ */
+
+const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const B58_MAP = {};
+for(let i = 0; i < B58_ALPHABET.length; i++) B58_MAP[B58_ALPHABET[i]] = i;
+
+function b58decode(str){
+  // 64-byte signatures encode to ~88 base58 chars, so the cap has to clear
+  // that — but still stop anyone posting a megabyte of digits at us.
+  if(typeof str !== 'string' || !str.length || str.length > 128) return null;
+
+  let zeros = 0;
+  while(zeros < str.length && str[zeros] === '1') zeros++;
+
+  const bytes = [];
+  for(let k = zeros; k < str.length; k++){
+    const v = B58_MAP[str[k]];
+    if(v === undefined) return null;
+    let carry = v;
+    for(let i = 0; i < bytes.length; i++){
+      carry += bytes[i] * 58;
+      bytes[i] = carry & 0xff;
+      carry >>= 8;
+    }
+    while(carry){ bytes.push(carry & 0xff); carry >>= 8; }
+  }
+  bytes.reverse();
+  return Buffer.concat([Buffer.alloc(zeros), Buffer.from(bytes)]);
+}
+
+/* A raw 32-byte Ed25519 key has to be wrapped in DER before Node will take it. */
+const ED_DER_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+function verifySignature(message, signature, pubkeyRaw){
+  try{
+    if(pubkeyRaw.length !== 32 || signature.length !== 64) return false;
+    const der = Buffer.concat([ED_DER_PREFIX, pubkeyRaw]);
+    const key = crypto.createPublicKey({ key: der, format: 'der', type: 'spki' });
+    return crypto.verify(null, message, key, signature);
+  }catch(e){ return false; }
+}
+
+/* ── challenges and sessions ──────────────────────────────────
+   A challenge is single-use and short-lived, so a captured signature can't
+   be replayed later. Sessions are in memory: a restart signs everyone out,
+   which is the honest trade for storing nothing on disk.               */
+const CHALLENGES = new Map();   // nonce -> { wallet, exp }
+const SESSIONS   = new Map();   // token -> { wallet, exp }
+
+const AUTH_CFG = {
+  CHALLENGE_MS: 5 * 60e3,          // 5 minutes to sign
+  SESSION_MS:   30 * 24 * 3600e3,  // 30 days
+  MAX_SESSIONS: 5000,
+};
+
+function sweepAuth(){
+  const now = Date.now();
+  for(const [k, v] of CHALLENGES) if(v.exp < now) CHALLENGES.delete(k);
+  for(const [k, v] of SESSIONS)   if(v.exp < now) SESSIONS.delete(k);
+}
+setInterval(sweepAuth, 60e3);
+
+function shortWallet(w){
+  return w.length > 12 ? w.slice(0, 4) + '…' + w.slice(-4) : w;
+}
+
+/* Who is this request from? Returns a wallet address, or null. */
+function whoIs(req){
+  const raw = req.headers['x-junction-session'];
+  if(typeof raw !== 'string' || !raw) return null;
+  const sess = SESSIONS.get(raw);
+  if(!sess || sess.exp < Date.now()) return null;
+  return sess.wallet;
+}
+
+/* ── POST /api/auth/challenge ────────────────────────────────── */
+function handleChallenge(req, res){
+  readBody(req, res, 1000, body => {
+    let p;
+    try { p = JSON.parse(body); } catch { return json(res, 400, { error: 'bad json' }); }
+
+    const wallet = s(p.wallet, 48);
+    const raw = b58decode(wallet);
+    if(!raw || raw.length !== 32){
+      return json(res, 400, { error: 'that does not look like a Solana address' });
+    }
+
+    const nonce = crypto.randomBytes(16).toString('hex');
+    CHALLENGES.set(nonce, { wallet, exp: Date.now() + AUTH_CFG.CHALLENGE_MS });
+
+    // The text is shown inside the wallet popup, so it should explain itself.
+    const message =
+      `Sign in to Junction\n\n` +
+      `This proves you own this wallet.\n` +
+      `It is not a transaction and costs nothing.\n\n` +
+      `Wallet: ${wallet}\n` +
+      `Nonce: ${nonce}`;
+
+    json(res, 200, { message, nonce });
+  });
+}
+
+/* ── POST /api/auth/verify ───────────────────────────────────── */
+function handleVerify(req, res){
+  readBody(req, res, 3000, body => {
+    let p;
+    try { p = JSON.parse(body); } catch { return json(res, 400, { error: 'bad json' }); }
+
+    const nonce = s(p.nonce, 64);
+    const ch = CHALLENGES.get(nonce);
+    if(!ch)              return json(res, 400, { error: 'challenge not found — start again' });
+    CHALLENGES.delete(nonce);                 // single use, always
+    if(ch.exp < Date.now()) return json(res, 400, { error: 'challenge expired — start again' });
+
+    const wallet = s(p.wallet, 48);
+    if(wallet !== ch.wallet) return json(res, 400, { error: 'wallet does not match the challenge' });
+
+    const pub = b58decode(wallet);
+    const sig = b58decode(s(p.signature, 128));
+    if(!pub || !sig) return json(res, 400, { error: 'malformed signature' });
+
+    const message =
+      `Sign in to Junction\n\n` +
+      `This proves you own this wallet.\n` +
+      `It is not a transaction and costs nothing.\n\n` +
+      `Wallet: ${wallet}\n` +
+      `Nonce: ${nonce}`;
+
+    if(!verifySignature(Buffer.from(message, 'utf8'), sig, pub)){
+      return json(res, 401, { error: 'signature did not verify' });
+    }
+
+    if(SESSIONS.size >= AUTH_CFG.MAX_SESSIONS) sweepAuth();
+    const token = crypto.randomBytes(32).toString('hex');
+    SESSIONS.set(token, { wallet, exp: Date.now() + AUTH_CFG.SESSION_MS });
+
+    console.log(`[auth] + ${shortWallet(wallet)} signed in`);
+    json(res, 200, { ok: true, session: token, wallet, short: shortWallet(wallet) });
+  });
+}
+
+/* ── GET /api/auth/me ────────────────────────────────────────── */
+function handleMe(req, res){
+  const wallet = whoIs(req);
+  if(!wallet) return json(res, 200, { signed_in: false });
+  json(res, 200, { signed_in: true, wallet, short: shortWallet(wallet) });
+}
+
+/* ── POST /api/auth/logout ───────────────────────────────────── */
+function handleLogout(req, res){
+  const raw = req.headers['x-junction-session'];
+  if(typeof raw === 'string') SESSIONS.delete(raw);
+  json(res, 200, { ok: true });
+}
 
 const HOSTED = new Map();   // deployId -> { key, timer, agentKey, spend... }
 
@@ -559,17 +731,21 @@ function slugify(name, owner){
 }
 
 /* Record a deployment. Same name+owner = same entry, run count goes up. */
-function rosterRecord(name, owner, goal){
+function rosterRecord(name, owner, goal, loc, wallet){
   const slug = slugify(name, owner);
   const now  = Date.now();
   const hit  = ROSTER.find(r => r.slug === slug);
 
   if(hit){
     hit.goal = goal;       // they may have changed what it's for
+    hit.loc  = loc || '';
     hit.last = now;
     hit.runs = (hit.runs || 1) + 1;
+    // claim it if it was anonymous and someone signed-in just redeployed it
+    if(wallet && !hit.wallet) hit.wallet = wallet;
   } else {
-    ROSTER.unshift({ slug, name, owner, goal, first: now, last: now, runs: 1 });
+    ROSTER.unshift({ slug, name, owner, goal, loc: loc || '',
+                     wallet: wallet || '', first: now, last: now, runs: 1 });
     if(ROSTER.length > 500) ROSTER.pop();
   }
   saveRoster();
@@ -661,7 +837,10 @@ function handleDeploy(req, res, ip){
       // Hosted agents run HERE, on this server — not wherever their owner is
       // sitting. Say so plainly rather than scattering them across the map
       // as if they were distributed.
-      loc:    envStr('HOST_LOCATION', 'server'),
+      // Where the deployer asked for it to be shown. Hosted agents all run on
+      // this one server, so this is a display choice, not a measurement —
+      // which is exactly why it comes from the form rather than an IP lookup.
+      loc:    s(p.location, 24).toLowerCase() || envStr('HOST_LOCATION', ''),
       status: 'online', thought: 'booting', tool: '—', last: '—',
       conf: 0, cpu: 0, mem: 0, ctx: 0, depth: 1,
       tokens: 0, toolsUsed: 0, ok: 100, fails: 0,
@@ -680,7 +859,7 @@ function handleDeploy(req, res, ip){
     HOSTED.set(deployId, H);
 
     // remember that this agent existed, so it can be run again later
-    rosterRecord(agent.name, agent.owner, agent.goal);
+    rosterRecord(agent.name, agent.owner, agent.goal, agent.loc, whoIs(req));
     if(HOST_CFG.FREE_MODE) hostDayCount++;
 
     // start thinking on a timer
@@ -844,6 +1023,12 @@ const server = http.createServer((req, res) => {
   if(req.method === 'POST' && req.url === '/api/disconnect') return handleDisconnect(req, res);
   if(req.method === 'GET'  && req.url === '/api/world')      return handleWorld(req, res);
 
+  // ── wallet sign-in ──
+  if(req.method === 'POST' && req.url === '/api/auth/challenge') return handleChallenge(req, res);
+  if(req.method === 'POST' && req.url === '/api/auth/verify')    return handleVerify(req, res);
+  if(req.method === 'GET'  && req.url === '/api/auth/me')        return handleMe(req, res);
+  if(req.method === 'POST' && req.url === '/api/auth/logout')    return handleLogout(req, res);
+
   // ── hosted agents (zero-install, owner brings their key) ──
   if(req.method === 'GET'  && req.url === '/api/deploy-mode'){
     rollHostDay();
@@ -854,17 +1039,30 @@ const server = http.createServer((req, res) => {
       life_minutes: Math.round(HOST_CFG.MAX_THOUGHTS * HOST_CFG.THINK_MS / 60000),
     });
   }
-  if(req.method === 'GET'  && req.url === '/api/roster'){
-    // public list of who has run here. no keys, no secrets — just the config
-    // people chose and how often it ran.
+  if(req.method === 'GET'  && req.url.startsWith('/api/roster')){
+    // Public list of what has run here — no keys, no secrets, just the config
+    // people chose. When signed in, `?mine=1` narrows it to your own agents.
+    const me   = whoIs(req);
+    const mine = /[?&]mine=1/.test(req.url);
     const live = new Set([...REG.agents.values()].map(a => a.name + '|' + a.owner));
+
+    let list = ROSTER;
+    if(mine){
+      if(!me) return json(res, 401, { error: 'sign in to see your agents' });
+      list = ROSTER.filter(r => r.wallet === me);
+    }
+
     return json(res, 200, {
-      agents: ROSTER.slice(0, 200).map(r => ({
-        slug: r.slug, name: r.name, owner: r.owner, goal: r.goal,
+      agents: list.slice(0, 200).map(r => ({
+        slug: r.slug, name: r.name, owner: r.owner, goal: r.goal, loc: r.loc || '',
         first: r.first, last: r.last, runs: r.runs,
         running: live.has(r.name + '|' + r.owner),
+        // never expose someone else's address — just say whether it's yours
+        owned: !!(me && r.wallet === me),
+        claimed: !!r.wallet,
       })),
       persisted: rosterWritable,
+      signed_in: !!me,
     });
   }
   if(req.method === 'POST' && req.url === '/api/deploy')     return handleDeploy(req, res, ip);
