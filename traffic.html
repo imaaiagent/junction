@@ -211,12 +211,18 @@
   }
   .land.on{opacity:.9;filter:drop-shadow(0 0 6px currentColor)}
 
-  .dot circle{transition:.3s}
-  .dot.hot circle{filter:drop-shadow(0 0 8px #6aff6a)}
-  .dot.hot{animation:dotFlare .9s ease-out}
-  @keyframes dotFlare{
-    0%  {transform:scale(1.45);transform-origin:center;filter:brightness(1.8)}
-    100%{transform:scale(1);   filter:none}
+  /* Dots pulse in place rather than scaling. `transform: scale()` inside an
+     SVG grows from the origin of the whole map, not the dot's own centre, so
+     a "flare" looked like the marker jumping across the continent. Animating
+     opacity keeps it on the spot where the agent actually is. */
+  .dot circle{transition:opacity .3s}
+  .dot.hot circle{filter:drop-shadow(0 0 6px currentColor)}
+  .dot.hot{animation:dotBlink .9s ease-in-out}
+  @keyframes dotBlink{
+    0%, 100%{opacity:1}
+    30%     {opacity:.25}
+    60%     {opacity:1}
+    80%     {opacity:.4}
   }
   .dnum{
     font-family:var(--f);font-size:9px;font-weight:700;
