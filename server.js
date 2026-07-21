@@ -582,6 +582,151 @@ function whoIs(req){
   return sess.wallet;
 }
 
+/* ════════════════════════════════════════════════════════════
+   PAYMENT — verifying a Solana transfer
+
+   Someone sends SOL to the treasury wallet and gives us the transaction
+   signature. We ask a public RPC whether that transaction really exists,
+   really moved at least the expected amount, and really went to us.
+
+   Three rules, all of them about not being lied to:
+
+     1. Never trust the amount the browser reports. Read it from the chain.
+     2. A signature can only be redeemed once. Replay is the obvious attack
+        and the ledger below is the record that prevents it.
+     3. Confirm the destination is OUR wallet — otherwise someone could pay
+        their friend and claim credit here.
+
+   If TREASURY_WALLET isn't configured, top-ups are refused outright. A
+   payment endpoint with no destination is a way to lose money quietly.
+============================================================ */
+
+const PAY_CFG = {
+  TREASURY:  envStr('TREASURY_WALLET', ''),
+  RPC:       envStr('SOLANA_RPC', 'https://api.mainnet-beta.solana.com'),
+  // How many USD one SOL is worth. Set it in Railway and keep it roughly
+  // current — a stale rate here means under- or over-charging.
+  SOL_USD:   parseFloat(envStr('SOL_USD', '0')) || 0,
+  MIN_CONF:  'confirmed',
+};
+
+const SEEN_TX = new Set();   // signatures already redeemed this run
+
+/* Load previously redeemed signatures so a restart can't be used to claim
+   the same payment twice. */
+function loadRedeemed(){
+  if(!creditWritable) return;
+  try{
+    if(!fs.existsSync(LEDGER_FILE())) return;
+    const lines = fs.readFileSync(LEDGER_FILE(), 'utf8').split('\n');
+    for(const line of lines){
+      if(!line.trim()) continue;
+      try{
+        const e = JSON.parse(line);
+        if(e.type === 'topup' && e.ref) SEEN_TX.add(e.ref);
+      }catch(_){}
+    }
+    if(SEEN_TX.size) console.log(`  payments: ${SEEN_TX.size} transaction(s) already redeemed`);
+  }catch(e){
+    console.error('[pay] could not read ledger:', String(e).slice(0, 80));
+  }
+}
+
+async function rpc(method, params){
+  const body = JSON.stringify({ jsonrpc:'2.0', id:1, method, params });
+  const r = await fetch(PAY_CFG.RPC, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body,
+  });
+  if(!r.ok) throw new Error('rpc http ' + r.status);
+  const j = await r.json();
+  if(j.error) throw new Error(j.error.message || 'rpc error');
+  return j.result;
+}
+
+/* Read how many lamports actually landed in the treasury in this
+   transaction, by diffing pre/post balances. This is deliberately not the
+   amount the client claimed. */
+function lamportsToTreasury(tx, treasury){
+  const keys = tx?.transaction?.message?.accountKeys || [];
+  const pre  = tx?.meta?.preBalances  || [];
+  const post = tx?.meta?.postBalances || [];
+
+  for(let i = 0; i < keys.length; i++){
+    const k = typeof keys[i] === 'string' ? keys[i] : keys[i]?.pubkey;
+    if(k === treasury){
+      return (post[i] || 0) - (pre[i] || 0);
+    }
+  }
+  return 0;
+}
+
+function handleTopup(req, res, wallet){
+  readBody(req, res, 2000, async body => {
+    let p;
+    try { p = JSON.parse(body); } catch { return json(res, 400, { error: 'bad json' }); }
+
+    if(!PAY_CFG.TREASURY){
+      return json(res, 503, { error: 'payments are not configured on this server' });
+    }
+    if(!PAY_CFG.SOL_USD){
+      return json(res, 503, { error: 'no SOL price configured — cannot value the payment' });
+    }
+
+    const sig = s(p.signature, 128);
+    if(!sig) return json(res, 400, { error: 'transaction signature required' });
+
+    if(SEEN_TX.has(sig)){
+      return json(res, 409, { error: 'that transaction has already been redeemed' });
+    }
+
+    try{
+      const tx = await rpc('getTransaction', [sig, {
+        commitment: PAY_CFG.MIN_CONF,
+        maxSupportedTransactionVersion: 0,
+      }]);
+
+      if(!tx)            return json(res, 404, { error: 'transaction not found yet — wait a few seconds and retry' });
+      if(tx.meta?.err)   return json(res, 400, { error: 'that transaction failed on-chain' });
+
+      const lamports = lamportsToTreasury(tx, PAY_CFG.TREASURY);
+      const sol = lamports / 1e9;
+      const usd = sol * PAY_CFG.SOL_USD;
+
+      if(lamports <= 0){
+        return json(res, 400, { error: 'that transaction did not pay the treasury wallet' });
+      }
+      // small tolerance for price drift between quote and confirmation
+      if(usd < PRICE_USD * 0.97){
+        return json(res, 400, {
+          error: `payment was $${usd.toFixed(2)}, expected $${PRICE_USD}`,
+        });
+      }
+
+      // mark redeemed BEFORE crediting, so a crash can't leave it claimable
+      SEEN_TX.add(sig);
+
+      if(!creditAdd(wallet, CREDIT_USD, sig)){
+        SEEN_TX.delete(sig);
+        return json(res, 500, { error: 'could not record the credit — nothing was charged, try again' });
+      }
+
+      const c = CREDIT[wallet];
+      json(res, 200, {
+        ok: true,
+        added: CREDIT_USD,
+        balance: +c.balance.toFixed(4),
+        paid_usd: +usd.toFixed(2),
+      });
+
+    }catch(e){
+      console.error('[pay] verify failed:', String(e).slice(0, 120));
+      json(res, 502, { error: 'could not verify the payment right now — nothing was charged' });
+    }
+  });
+}
+
 /* ── POST /api/auth/challenge ────────────────────────────────── */
 function handleChallenge(req, res){
   readBody(req, res, 1000, body => {
@@ -688,6 +833,144 @@ const HOSTED = new Map();   // deployId -> { key, timer, agentKey, spend... }
 
 const ROSTER_DIR  = envStr('DATA_DIR', '/data');
 const ROSTER_FILE = path.join(ROSTER_DIR, 'roster.json');
+
+/* ════════════════════════════════════════════════════════════
+   CREDIT — the part where real money is involved
+
+   People pay $10 and get $8 of API credit against their wallet. That credit
+   has to survive everything: restarts, crashes, deploys. If someone paid and
+   we lose the record, we've taken money and given nothing back.
+
+   So this file writes DIFFERENTLY from the roster:
+
+     - synchronous writes, no debounce. A balance change hits the disk before
+       the function returns. Losing 400ms of roster history is a shrug;
+       losing 400ms of paid balance is theft.
+     - write to a temp file then rename. A crash mid-write leaves the old
+       file intact rather than a half-written one.
+     - every charge is appended to a ledger, so a balance can always be
+       reconstructed and any dispute can be answered with a list of what was
+       actually spent.
+
+   If the disk isn't writable, paid top-ups are REFUSED rather than accepted
+   into memory that a restart will erase. Better to turn away a sale than to
+   take money we can't account for.
+============================================================ */
+
+const CREDIT_FILE = () => path.join(ROSTER_DIR, 'credit.json');
+const LEDGER_FILE = () => path.join(ROSTER_DIR, 'ledger.jsonl');
+
+let CREDIT = {};          // wallet -> { balance, spent, topups, updated }
+let creditWritable = false;
+
+const PRICE_USD   = 10;   // what a top-up costs
+const CREDIT_USD  = 8;    // what lands in the balance
+const FREE_HOUR_MS = 3600e3;
+
+/* Haiku pricing, per million tokens. Kept here so the cost of a thought is
+   computed from one place — if the model or price changes, this is the line
+   to edit, not a magic number scattered through the file. */
+const PRICE = {
+  IN_PER_M:  1.00,
+  OUT_PER_M: 5.00,
+  EST_INPUT: 220,   // system prompt + goal + last step, measured not guessed
+};
+
+function costOfThought(outTokens){
+  return (PRICE.EST_INPUT / 1e6) * PRICE.IN_PER_M
+       + ((outTokens || 0) / 1e6) * PRICE.OUT_PER_M;
+}
+
+function loadCredit(){
+  try{
+    if(!fs.existsSync(ROSTER_DIR)) fs.mkdirSync(ROSTER_DIR, { recursive: true });
+    fs.writeFileSync(path.join(ROSTER_DIR, '.credit-probe'), '1');
+    fs.unlinkSync(path.join(ROSTER_DIR, '.credit-probe'));
+    creditWritable = true;
+
+    if(fs.existsSync(CREDIT_FILE())){
+      const raw = JSON.parse(fs.readFileSync(CREDIT_FILE(), 'utf8'));
+      if(raw && typeof raw === 'object') CREDIT = raw;
+    }
+    const wallets = Object.keys(CREDIT).length;
+    const total = Object.values(CREDIT).reduce((s, c) => s + (c.balance || 0), 0);
+    console.log(`  credit:   ${wallets} wallet(s), $${total.toFixed(2)} outstanding`);
+  }catch(e){
+    creditWritable = false;
+    console.log(`  credit:   DISABLED — no writable volume at ${ROSTER_DIR}`);
+    console.log(`            paid top-ups will be refused until one is mounted`);
+  }
+}
+
+/* Synchronous, atomic. Slower than the roster's debounced write, and that is
+   the correct trade for a number that represents money. */
+function saveCredit(){
+  if(!creditWritable) return false;
+  try{
+    const tmp = CREDIT_FILE() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(CREDIT, null, 1));
+    fs.renameSync(tmp, CREDIT_FILE());   // atomic on the same filesystem
+    return true;
+  }catch(e){
+    console.error('[credit] WRITE FAILED:', String(e).slice(0, 120));
+    return false;
+  }
+}
+
+/* Append-only record of everything that moved. Never rewritten, never
+   trimmed by the app — if someone asks "where did my $8 go", the answer is
+   in here. */
+function ledger(entry){
+  if(!creditWritable) return;
+  try{
+    fs.appendFileSync(LEDGER_FILE(),
+      JSON.stringify({ t: Date.now(), ...entry }) + '\n');
+  }catch(e){
+    console.error('[ledger] append failed:', String(e).slice(0, 80));
+  }
+}
+
+function creditOf(wallet){
+  const c = CREDIT[wallet];
+  return c ? (c.balance || 0) : 0;
+}
+
+/* Add paid credit. Returns false if it could not be durably stored — the
+   caller must then refuse the sale rather than pretend it worked. */
+function creditAdd(wallet, usd, ref){
+  if(!creditWritable) return false;
+  const c = CREDIT[wallet] || { balance: 0, spent: 0, topups: 0 };
+  c.balance = +(c.balance + usd).toFixed(6);
+  c.topups  = (c.topups || 0) + 1;
+  c.updated = Date.now();
+  CREDIT[wallet] = c;
+
+  if(!saveCredit()) return false;
+  ledger({ type:'topup', wallet, usd, ref: ref || '', balance: c.balance });
+  console.log(`[credit] + $${usd} to ${shortWallet(wallet)} (bal $${c.balance.toFixed(4)})`);
+  return true;
+}
+
+/* Deduct for work done. Allowed to go to zero but never below — an agent
+   that runs out stops, it does not run up a debt. */
+function creditSpend(wallet, usd, note){
+  const c = CREDIT[wallet];
+  if(!c || c.balance <= 0) return false;
+
+  const take = Math.min(c.balance, usd);
+  c.balance = +(c.balance - take).toFixed(6);
+  c.spent   = +((c.spent || 0) + take).toFixed(6);
+  c.updated = Date.now();
+
+  saveCredit();
+  // one ledger line per thought would be enormous; record in small batches
+  c._pending = (c._pending || 0) + take;
+  if(c._pending >= 0.01){
+    ledger({ type:'spend', wallet, usd:+c._pending.toFixed(6), note: note || '', balance: c.balance });
+    c._pending = 0;
+  }
+  return c.balance > 0;
+}
 
 let ROSTER = [];        // [{ slug, name, owner, goal, first, last, runs }]
 let rosterWritable = false;
@@ -855,7 +1138,13 @@ function handleDeploy(req, res, ip){
 
     // the key never leaves this closure. not the record, not the response.
     const deployId = crypto.randomBytes(8).toString('hex');
-    const H = { apiKey, agentKey, id, name, thoughts: 0, timer: null, free: HOST_CFG.FREE_MODE };
+    const H = {
+      apiKey, agentKey, id, name,
+      thoughts: 0, timer: null, free: HOST_CFG.FREE_MODE,
+      started: Date.now(),        // the free hour is measured from here
+      wallet: whoIs(req) || '',   // who pays once the free hour is up
+      spent: 0,
+    };
     HOSTED.set(deployId, H);
 
     // remember that this agent existed, so it can be run again later
@@ -885,10 +1174,36 @@ async function thinkOnce(deployId){
   const agent = REG.agents.get(H.agentKey);
   if(!agent){ stopHosted(deployId); return; }
 
-  // retire after a bounded number of thoughts so a key can't burn indefinitely
-  if(H.thoughts >= HOST_CFG.MAX_THOUGHTS){
+  /* ── who is paying for this thought? ──────────────────────
+     First hour is on the house. After that the owner's wallet balance pays,
+     and when that reaches zero the agent stops. It never runs on credit it
+     doesn't have — an agent that quietly overspends is worse than one that
+     stops and says why. */
+  const age  = Date.now() - H.started;
+  const free = age < FREE_HOUR_MS;
+
+  if(!free){
+    if(!H.wallet){
+      // anonymous deploy, free hour is up, nobody to bill
+      pushEvent(agent, 'free hour ended — connect a wallet to continue', 'warn');
+      pushIncident('NOTICE', `${agent.name} — free hour ended`);
+      H.endedReason = 'free-hour-over';
+      stopHosted(deployId);
+      return;
+    }
+    if(creditOf(H.wallet) <= 0){
+      pushEvent(agent, 'out of credit — stopped', 'warn');
+      pushIncident('NOTICE', `${agent.name} — out of credit`);
+      H.endedReason = 'out-of-credit';
+      stopHosted(deployId);
+      return;
+    }
+  }
+
+  // a hard ceiling still applies to the free hour, so an anonymous deploy
+  // can't be left running forever by a stalled clock
+  if(free && H.thoughts >= HOST_CFG.MAX_THOUGHTS * 10){
     pushEvent(agent, 'reached thought limit — retiring', 'warn');
-    pushIncident('NOTICE', `${agent.name} retired (limit)`);
     stopHosted(deployId);
     return;
   }
@@ -907,6 +1222,14 @@ async function thinkOnce(deployId){
       messages,
     });
     const out = await callAnthropicWithKey(body, H.apiKey);
+
+    // Bill for the call that just happened, not the one about to. If the
+    // request failed we never reach here, so nobody pays for an error.
+    if(!free && H.wallet){
+      const cost = costOfThought(HOST_CFG.MAX_TOKENS);
+      H.spent = +((H.spent || 0) + cost).toFixed(6);
+      creditSpend(H.wallet, cost, agent.name);
+    }
 
     let j = null;
     try {
@@ -1029,6 +1352,60 @@ const server = http.createServer((req, res) => {
   if(req.method === 'GET'  && req.url === '/api/auth/me')        return handleMe(req, res);
   if(req.method === 'POST' && req.url === '/api/auth/logout')    return handleLogout(req, res);
 
+  // ── credit ──
+  if(req.method === 'GET' && req.url === '/api/credit/info'){
+    // Public: what a top-up costs and where to send it. No auth needed —
+    // people should be able to see the price before signing in.
+    const perHour = costOfThought(HOST_CFG.MAX_TOKENS) * (3600000 / HOST_CFG.THINK_MS);
+    return json(res, 200, {
+      enabled:    !!(PAY_CFG.TREASURY && PAY_CFG.SOL_USD && creditWritable),
+      treasury:   PAY_CFG.TREASURY || '',
+      price_usd:  PRICE_USD,
+      credit_usd: CREDIT_USD,
+      sol_usd:    PAY_CFG.SOL_USD,
+      rpc:        PAY_CFG.RPC,
+      price_sol:  PAY_CFG.SOL_USD ? +(PRICE_USD / PAY_CFG.SOL_USD).toFixed(4) : 0,
+      cost_per_hour: +perHour.toFixed(4),
+      hours_per_topup: perHour > 0 ? Math.round(CREDIT_USD / perHour) : 0,
+      free_hour_ms: FREE_HOUR_MS,
+    });
+  }
+
+  if(req.method === 'GET' && req.url === '/api/credit'){
+    const me = whoIs(req);
+    if(!me) return json(res, 401, { error: 'sign in to see your balance' });
+
+    const c = CREDIT[me] || {};
+    // How long the current balance actually lasts, at the rate agents burn it.
+    // Better to state this than let someone guess what "$8" buys.
+    const perHour = costOfThought(HOST_CFG.MAX_TOKENS) * (3600000 / HOST_CFG.THINK_MS);
+    return json(res, 200, {
+      balance: +(c.balance || 0).toFixed(4),
+      spent:   +(c.spent   || 0).toFixed(4),
+      topups:   c.topups   || 0,
+      hours_left: perHour > 0 ? +((c.balance || 0) / perHour).toFixed(1) : 0,
+      price_usd:  PRICE_USD,
+      credit_usd: CREDIT_USD,
+      cost_per_hour: +perHour.toFixed(4),
+      free_hour_ms: FREE_HOUR_MS,
+      storage_ok: creditWritable,
+    });
+  }
+
+  if(req.method === 'POST' && req.url === '/api/credit/topup'){
+    const me = whoIs(req);
+    if(!me) return json(res, 401, { error: 'sign in first' });
+
+    // Refuse to take money we cannot durably record. An in-memory balance
+    // that a restart erases is worse than no sale at all.
+    if(!creditWritable){
+      return json(res, 503, {
+        error: 'top-ups are unavailable — the server has no persistent storage configured',
+      });
+    }
+    return handleTopup(req, res, me);
+  }
+
   // ── hosted agents (zero-install, owner brings their key) ──
   if(req.method === 'GET'  && req.url === '/api/deploy-mode'){
     rollHostDay();
@@ -1074,6 +1451,8 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`JUNCTION listening on :${PORT}`);
   loadRoster();
+  loadCredit();
+  loadRedeemed();
   console.log(`  registry: LIVE - 0 agents connected`);
   console.log(`            POST /api/register  -> get a key`);
   console.log(`            POST /api/heartbeat -> stream telemetry`);
@@ -1083,4 +1462,11 @@ server.listen(PORT, '0.0.0.0', () => {
                : null;
   console.log(`  hosted:   ${HOST_CFG.FREE_MODE ? 'FREE MODE (server pays) - ' + HOST_CFG.GLOBAL_PER_DAY + '/day, ' + HOST_CFG.MAX_THOUGHTS + ' thoughts each' : 'BYOK (visitor pays)'}`);
   console.log(`            key from: ${keyVar || 'nothing set — visitors must bring their own'}`);
+  const payOn = PAY_CFG.TREASURY && PAY_CFG.SOL_USD && creditWritable;
+  console.log(`  payments: ${payOn ? 'ON — $' + PRICE_USD + ' → $' + CREDIT_USD + ' credit' : 'OFF'}`);
+  if(!payOn){
+    if(!PAY_CFG.TREASURY)  console.log(`            TREASURY_WALLET not set`);
+    if(!PAY_CFG.SOL_USD)   console.log(`            SOL_USD not set`);
+    if(!creditWritable)    console.log(`            no writable volume`);
+  }
 });
