@@ -727,6 +727,129 @@ function handleTopup(req, res, wallet){
   });
 }
 
+/* ════════════════════════════════════════════════════════════
+   ADMIN
+
+   Read-only view of the money: what came in, what is still owed as unspent
+   credit, and what it cost to serve. Locked to one wallet — the operator's —
+   because revenue is not public information.
+
+   The gate is the same signature check everyone else goes through; there is
+   no separate admin password to leak. If ADMIN_WALLET isn't set, the whole
+   surface 404s rather than falling open.
+============================================================ */
+
+const ADMIN_WALLET = envStr('ADMIN_WALLET', '');
+
+function isAdmin(req){
+  if(!ADMIN_WALLET) return false;
+  return whoIs(req) === ADMIN_WALLET;
+}
+
+/* Read the ledger back into numbers. It is append-only and small (one line
+   per top-up, one per batch of spending), so a full scan is fine — and far
+   safer than keeping a running total that could drift from the record. */
+function readLedger(limit = 0){
+  if(!creditWritable || !fs.existsSync(LEDGER_FILE())) return [];
+  try{
+    const lines = fs.readFileSync(LEDGER_FILE(), 'utf8').split('\n').filter(Boolean);
+    const rows = [];
+    for(const line of lines){
+      try{ rows.push(JSON.parse(line)); }catch(_){}
+    }
+    return limit ? rows.slice(-limit) : rows;
+  }catch(e){
+    console.error('[admin] ledger read failed:', String(e).slice(0, 80));
+    return [];
+  }
+}
+
+function adminSummary(){
+  const rows = readLedger();
+  const now = Date.now();
+  const DAY = 86400e3;
+
+  let revenue = 0, topupCount = 0, spent = 0;
+  const byDay = {};
+  const wallets = new Set();
+
+  for(const r of rows){
+    if(r.type === 'topup'){
+      revenue += PRICE_USD;            // what they paid, not what they got
+      topupCount++;
+      wallets.add(r.wallet);
+      const day = new Date(r.t).toISOString().slice(0, 10);
+      byDay[day] = (byDay[day] || 0) + PRICE_USD;
+    }
+    if(r.type === 'spend') spent += (r.usd || 0);
+  }
+
+  // Unspent credit is a liability: money taken for work not yet done.
+  const outstanding = Object.values(CREDIT)
+    .reduce((sum, c) => sum + (c.balance || 0), 0);
+
+  const last7 = Object.entries(byDay)
+    .filter(([d]) => now - Date.parse(d) < 7 * DAY)
+    .sort()
+    .map(([date, usd]) => ({ date, usd: +usd.toFixed(2) }));
+
+  return {
+    revenue:      +revenue.toFixed(2),
+    topups:       topupCount,
+    paying_wallets: wallets.size,
+    api_spent:    +spent.toFixed(4),
+    outstanding:  +outstanding.toFixed(4),   // still owed as agent time
+    margin:       +(revenue - spent).toFixed(2),
+    last7,
+  };
+}
+
+function handleAdmin(req, res){
+  if(!isAdmin(req)){
+    // Don't confirm the endpoint exists to anyone who isn't the operator.
+    return notFound(res);
+  }
+
+  const summary = adminSummary();
+  const now = Date.now();
+
+  const hosted = [...HOSTED.values()].map(h => ({
+    name: h.name,
+    wallet: h.wallet ? shortWallet(h.wallet) : '(anonymous)',
+    thoughts: h.thoughts,
+    spent: +(h.spent || 0).toFixed(4),
+    age_ms: now - h.started,
+    free: (now - h.started) < FREE_HOUR_MS,
+  }));
+
+  const balances = Object.entries(CREDIT)
+    .map(([w, c]) => ({
+      wallet: shortWallet(w),
+      balance: +(c.balance || 0).toFixed(4),
+      spent:   +(c.spent   || 0).toFixed(4),
+      topups:  c.topups || 0,
+    }))
+    .sort((a, b) => b.balance - a.balance)
+    .slice(0, 50);
+
+  json(res, 200, {
+    ...summary,
+    live_agents: REG.agents.size,
+    hosted_running: HOSTED.size,
+    hosted,
+    balances,
+    roster_size: ROSTER.length,
+    storage_ok: creditWritable && rosterWritable,
+    recent: readLedger(40).reverse().map(r => ({
+      t: r.t,
+      type: r.type,
+      wallet: r.wallet ? shortWallet(r.wallet) : '',
+      usd: r.usd,
+      note: r.note || '',
+    })),
+  });
+}
+
 /* ── POST /api/auth/challenge ────────────────────────────────── */
 function handleChallenge(req, res){
   readBody(req, res, 1000, body => {
@@ -1352,6 +1475,13 @@ const server = http.createServer((req, res) => {
   if(req.method === 'GET'  && req.url === '/api/auth/me')        return handleMe(req, res);
   if(req.method === 'POST' && req.url === '/api/auth/logout')    return handleLogout(req, res);
 
+  // ── admin (operator only) ──
+  if(req.method === 'GET' && req.url === '/api/admin') return handleAdmin(req, res);
+  if(req.method === 'GET' && req.url === '/api/admin/check'){
+    // lets the page decide whether to show itself at all
+    return json(res, 200, { admin: isAdmin(req) });
+  }
+
   // ── credit ──
   if(req.method === 'GET' && req.url === '/api/credit/info'){
     // Public: what a top-up costs and where to send it. No auth needed —
@@ -1464,6 +1594,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`            key from: ${keyVar || 'nothing set — visitors must bring their own'}`);
   const payOn = PAY_CFG.TREASURY && PAY_CFG.SOL_USD && creditWritable;
   console.log(`  payments: ${payOn ? 'ON — $' + PRICE_USD + ' → $' + CREDIT_USD + ' credit' : 'OFF'}`);
+  console.log(`  admin:    ${ADMIN_WALLET ? shortWallet(ADMIN_WALLET) : 'OFF — set ADMIN_WALLET to enable /admin'}`);
   if(!payOn){
     if(!PAY_CFG.TREASURY)  console.log(`            TREASURY_WALLET not set`);
     if(!PAY_CFG.SOL_USD)   console.log(`            SOL_USD not set`);

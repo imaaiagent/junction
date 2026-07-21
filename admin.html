@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JUNCTION // ADMIN</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#000; --bg-1:#060906; --bg-2:#0c130c;
+    --line:#1c3f1c; --line-2:#2d6b2d; --dim:#4d8f4d; --mid:#7fd47f;
+    --grn:#6aff6a; --grn-hot:#b6ffb6; --wht:#eaffea;
+    --gold:#ffc400; --amb:#ffb347; --red:#ff5555; --cyan:#5affff;
+    --f:"JetBrains Mono",ui-monospace,"DejaVu Sans Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg);color:var(--mid);font-family:var(--f);
+    font-size:13px;line-height:1.6;min-height:100vh;
+    -webkit-font-smoothing:none;
+    background-image:repeating-linear-gradient(0deg,rgba(0,0,0,0) 0 2px,rgba(0,0,0,.13) 2px 3px);
+  }
+  ::selection{background:var(--grn);color:#000}
+  a{color:var(--grn);text-decoration:none}
+  .wrap{width:100%;max-width:1000px;margin:0 auto;padding:0 20px}
+
+  .top{border-bottom:1px solid var(--line);background:var(--bg-1)}
+  .top .wrap{display:flex;justify-content:space-between;align-items:center;height:42px;
+    font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .top b{color:var(--gold);font-weight:400}
+  .top .r{display:flex;align-items:center;gap:14px}
+  .wbtn{
+    background:transparent;border:1px solid var(--line-2);color:var(--dim);
+    font-family:inherit;font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+    padding:5px 11px;cursor:pointer;transition:.15s;
+  }
+  .wbtn:hover{border-color:var(--grn);color:var(--grn)}
+  .wbtn.on{border-color:var(--grn);color:var(--grn)}
+
+  /* gate */
+  .gate{
+    max-width:460px;margin:16vh auto;padding:0 20px;text-align:center;
+  }
+  .gate h1{color:var(--wht);font-size:19px;font-weight:700;margin-bottom:12px}
+  .gate p{color:var(--dim);font-size:12px;line-height:1.8;margin-bottom:22px}
+  .gate .big{
+    background:transparent;border:1px solid var(--grn);color:var(--grn);
+    font-family:inherit;font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    padding:13px 26px;cursor:pointer;transition:.15s;
+  }
+  .gate .big:hover{background:var(--grn);color:#000}
+  .gate .err{color:var(--red);font-size:11px;margin-top:16px;min-height:1.4em}
+
+  main{display:none;padding:26px 0 60px}
+  main.on{display:block}
+
+  h2{
+    font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--line-2);
+    border-bottom:1px solid var(--line);padding-bottom:8px;margin:30px 0 14px;
+    display:flex;justify-content:space-between;
+  }
+  h2:first-child{margin-top:0}
+
+  /* headline numbers */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:2px}
+  .card{background:var(--bg-1);border:1px solid var(--line);padding:14px 16px}
+  .card .k{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--line-2)}
+  .card .v{font-size:23px;color:var(--grn);margin-top:3px;line-height:1.1;
+    font-variant-numeric:tabular-nums;text-shadow:0 0 14px rgba(106,255,106,.25)}
+  .card .v.gold{color:var(--gold);text-shadow:0 0 14px rgba(255,196,0,.25)}
+  .card .v.amb{color:var(--amb);text-shadow:none}
+  .card .v.dim{color:var(--line-2);text-shadow:none}
+  .card .s{font-size:9px;color:var(--line-2);margin-top:2px}
+
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  th{
+    text-align:left;font-weight:400;color:var(--line-2);
+    font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+    padding:7px 10px;border-bottom:1px solid var(--line);background:var(--bg-2);
+  }
+  td{padding:7px 10px;border-bottom:1px solid rgba(28,63,28,.5);color:var(--mid)}
+  tr:last-child td{border-bottom:0}
+  td.n{text-align:right;font-variant-numeric:tabular-nums}
+  td.w{color:var(--wht)}
+  .tag{font-size:9px;letter-spacing:.08em;padding:1px 6px;border:1px solid currentColor}
+  .tag.free{color:var(--cyan)}
+  .tag.paid{color:var(--gold)}
+  .tag.topup{color:var(--gold)}
+  .tag.spend{color:var(--dim)}
+  .empty{padding:20px;text-align:center;color:var(--line-2);font-size:11px;
+    background:var(--bg-1);border:1px solid var(--line)}
+
+  .bars{display:flex;align-items:flex-end;gap:3px;height:56px;margin-top:4px}
+  .bar{flex:1;background:var(--line-2);min-height:2px;position:relative;transition:.3s}
+  .bar:hover{background:var(--grn)}
+  .bar .lab{
+    position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);
+    font-size:8px;color:var(--line-2);white-space:nowrap;
+  }
+  .chart{margin-bottom:22px}
+
+  .note{
+    border:1px solid var(--line-2);background:var(--bg-1);
+    padding:13px 15px;font-size:11px;line-height:1.75;color:var(--dim);margin-top:14px;
+  }
+  .note b{color:var(--amb)}
+
+  footer{border-top:1px solid var(--line);margin-top:44px;padding:20px 0 40px;
+    font-size:10px;color:var(--line-2);letter-spacing:.1em;text-transform:uppercase;text-align:center}
+
+  @media(max-width:640px){
+    .cards{grid-template-columns:repeat(2,1fr)}
+    table{font-size:10px}
+    th,td{padding:6px 7px}
+  }
+</style>
+</head>
+<body>
+
+<div class="top"><div class="wrap">
+  <span><a href="/traffic">← traffic</a></span>
+  <span class="r">
+    <button type="button" id="walletBtn" class="wbtn">connect wallet</button>
+    <span>junction <b>admin</b></span>
+  </span>
+</div></div>
+
+<div class="gate" id="gate">
+  <h1>Operator only</h1>
+  <p>This page shows revenue and outstanding credit. Sign in with the operator
+     wallet to open it.</p>
+  <button type="button" class="big" id="gateBtn">connect wallet</button>
+  <div class="err" id="gateErr"></div>
+</div>
+
+<main id="main"><div class="wrap">
+
+  <h2><span>money</span><span id="stamp">—</span></h2>
+  <div class="cards">
+    <div class="card"><div class="k">revenue</div><div class="v gold" id="mRevenue">$0</div><div class="s" id="mTopups">0 top-ups</div></div>
+    <div class="card"><div class="k">api spent</div><div class="v amb" id="mSpent">$0</div><div class="s">actual model cost</div></div>
+    <div class="card"><div class="k">margin</div><div class="v" id="mMargin">$0</div><div class="s">revenue − api</div></div>
+    <div class="card"><div class="k">outstanding</div><div class="v dim" id="mOutstanding">$0</div><div class="s">credit not yet used</div></div>
+  </div>
+
+  <div class="note" id="liabilityNote" style="display:none"></div>
+
+  <h2><span>last 7 days</span></h2>
+  <div class="chart"><div class="bars" id="chart"></div></div>
+
+  <h2><span>right now</span></h2>
+  <div class="cards">
+    <div class="card"><div class="k">agents live</div><div class="v" id="mLive">0</div><div class="s">on the board</div></div>
+    <div class="card"><div class="k">hosted running</div><div class="v" id="mHosted">0</div><div class="s">costing money</div></div>
+    <div class="card"><div class="k">paying wallets</div><div class="v" id="mWallets">0</div><div class="s">have topped up</div></div>
+    <div class="card"><div class="k">roster</div><div class="v" id="mRoster">0</div><div class="s">agents on file</div></div>
+  </div>
+
+  <h2><span>hosted agents</span><span id="hostedN">—</span></h2>
+  <div id="hostedBox"></div>
+
+  <h2><span>balances</span><span id="balN">—</span></h2>
+  <div id="balBox"></div>
+
+  <h2><span>ledger</span><span>most recent first</span></h2>
+  <div id="ledgerBox"></div>
+
+  <footer>junction // admin · refreshes every 10s</footer>
+</div></main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+/* ── wallet sign-in (same flow as /deploy) ─────────────────── */
+const B58A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function b58encode(bytes){
+  let zeros = 0;
+  while(zeros < bytes.length && bytes[zeros] === 0) zeros++;
+  const digits = [0];
+  for(let i = zeros; i < bytes.length; i++){
+    let carry = bytes[i];
+    for(let j = 0; j < digits.length; j++){
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while(carry){ digits.push(carry % 58); carry = (carry / 58) | 0; }
+  }
+  return '1'.repeat(zeros) + digits.reverse().map(d => B58A[d]).join('');
+}
+
+let SESSION = null, WALLET = null, IS_ADMIN = false, timer = null;
+
+const sessionHeaders = () => SESSION ? { 'X-Junction-Session': SESSION } : {};
+const getPhantom = () => {
+  const p = window.phantom?.solana || window.solana;
+  return (p && p.isPhantom) ? p : null;
+};
+
+function gateErr(msg){ $('gateErr').textContent = msg; }
+
+async function connectWallet(){
+  const phantom = getPhantom();
+  if(!phantom){
+    return gateErr('Phantom not found. Install it at phantom.app, then reload.');
+  }
+  gateErr('');
+  try{
+    const resp = await phantom.connect();
+    const wallet = resp.publicKey.toString();
+
+    const cr = await fetch('/api/auth/challenge', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ wallet }),
+    });
+    const cd = await cr.json();
+    if(!cr.ok) throw new Error(cd.error || 'sign-in failed');
+
+    const signed = await phantom.signMessage(new TextEncoder().encode(cd.message), 'utf8');
+    const vr = await fetch('/api/auth/verify', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ wallet, nonce: cd.nonce, signature: b58encode(signed.signature) }),
+    });
+    const vd = await vr.json();
+    if(!vr.ok) throw new Error(vd.error || 'verification failed');
+
+    SESSION = vd.session;
+    WALLET = { address: vd.wallet, short: vd.short };
+    try{ sessionStorage.setItem('jct_session', SESSION); }catch(_){}
+    paint();
+    await checkAdmin();
+  }catch(e){
+    const msg = String(e.message || e);
+    if(!/user rejected|declined/i.test(msg)) gateErr(msg);
+  }
+}
+
+async function disconnectWallet(){
+  try{ await fetch('/api/auth/logout', { method:'POST', headers: sessionHeaders() }); }catch(_){}
+  try{ sessionStorage.removeItem('jct_session'); }catch(_){}
+  try{ getPhantom()?.disconnect(); }catch(_){}
+  SESSION = null; WALLET = null; IS_ADMIN = false;
+  clearInterval(timer);
+  paint();
+  $('main').classList.remove('on');
+  $('gate').style.display = 'block';
+}
+
+function paint(){
+  const b = $('walletBtn');
+  if(WALLET){
+    b.textContent = '◉ ' + WALLET.short;
+    b.classList.add('on');
+  }else{
+    b.textContent = 'connect wallet';
+    b.classList.remove('on');
+  }
+}
+
+async function checkAdmin(){
+  try{
+    const r = await fetch('/api/admin/check', { headers: sessionHeaders() });
+    const d = await r.json();
+    IS_ADMIN = !!d.admin;
+  }catch(_){ IS_ADMIN = false; }
+
+  if(IS_ADMIN){
+    $('gate').style.display = 'none';
+    $('main').classList.add('on');
+    load();
+    clearInterval(timer);
+    timer = setInterval(load, 10000);
+  }else if(WALLET){
+    // Signed in, but not the operator. Say so plainly rather than
+    // pretending the page is broken.
+    gateErr('That wallet is not the operator wallet for this server.');
+  }
+}
+
+/* ── data ──────────────────────────────────────────────────── */
+const usd = n => '$' + (+n || 0).toFixed(2);
+const esc = s => String(s ?? '').replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ago = ms => {
+  const s = Math.floor(ms / 1000);
+  if(s < 60) return s + 's';
+  if(s < 3600) return Math.floor(s/60) + 'm';
+  return Math.floor(s/3600) + 'h ' + Math.floor(s%3600/60) + 'm';
+};
+
+async function load(){
+  try{
+    const r = await fetch('/api/admin', { cache:'no-store', headers: sessionHeaders() });
+    if(!r.ok) return;
+    const d = await r.json();
+
+    $('stamp').textContent = new Date().toLocaleTimeString();
+
+    $('mRevenue').textContent = usd(d.revenue);
+    $('mTopups').textContent  = `${d.topups} top-up${d.topups === 1 ? '' : 's'}`;
+    $('mSpent').textContent   = '$' + (d.api_spent || 0).toFixed(3);
+    $('mMargin').textContent  = usd(d.margin);
+    $('mOutstanding').textContent = usd(d.outstanding);
+
+    $('mLive').textContent    = d.live_agents;
+    $('mHosted').textContent  = d.hosted_running;
+    $('mWallets').textContent = d.paying_wallets;
+    $('mRoster').textContent  = d.roster_size;
+
+    // Outstanding credit is money already taken for work not yet done.
+    // Worth stating, because it isn't profit even though it's in the bank.
+    const note = $('liabilityNote');
+    if(d.outstanding > 0){
+      note.style.display = 'block';
+      note.innerHTML = `<b>▲ ${usd(d.outstanding)} is owed as agent time.</b> `
+        + `People have paid for it but not used it yet — treat it as a liability, `
+        + `not revenue. It will burn down as their agents run.`;
+    }else{
+      note.style.display = 'none';
+    }
+
+    // 7-day chart
+    const days = d.last7 || [];
+    const max = Math.max(1, ...days.map(x => x.usd));
+    $('chart').innerHTML = days.length
+      ? days.map(x =>
+          `<div class="bar" style="height:${Math.round(x.usd / max * 100)}%"
+                title="${x.date}: ${usd(x.usd)}">
+             <span class="lab">${x.date.slice(5)}</span>
+           </div>`).join('')
+      : '<div class="empty" style="flex:1">no top-ups yet</div>';
+
+    // hosted
+    $('hostedN').textContent = `${d.hosted.length} running`;
+    $('hostedBox').innerHTML = d.hosted.length
+      ? `<table><thead><tr>
+           <th>agent</th><th>owner</th><th>age</th>
+           <th class="n">thoughts</th><th class="n">cost</th><th>billing</th>
+         </tr></thead><tbody>` +
+        d.hosted.map(h => `<tr>
+          <td class="w">${esc(h.name)}</td>
+          <td>${esc(h.wallet)}</td>
+          <td>${ago(h.age_ms)}</td>
+          <td class="n">${h.thoughts}</td>
+          <td class="n">$${h.spent.toFixed(4)}</td>
+          <td><span class="tag ${h.free ? 'free' : 'paid'}">${h.free ? 'free hour' : 'on credit'}</span></td>
+        </tr>`).join('') + '</tbody></table>'
+      : '<div class="empty">nothing running right now</div>';
+
+    // balances
+    $('balN').textContent = `${d.balances.length} wallet${d.balances.length === 1 ? '' : 's'}`;
+    $('balBox').innerHTML = d.balances.length
+      ? `<table><thead><tr>
+           <th>wallet</th><th class="n">balance</th><th class="n">spent</th><th class="n">top-ups</th>
+         </tr></thead><tbody>` +
+        d.balances.map(b => `<tr>
+          <td class="w">${esc(b.wallet)}</td>
+          <td class="n">${usd(b.balance)}</td>
+          <td class="n">$${b.spent.toFixed(3)}</td>
+          <td class="n">${b.topups}</td>
+        </tr>`).join('') + '</tbody></table>'
+      : '<div class="empty">nobody has credit yet</div>';
+
+    // ledger
+    $('ledgerBox').innerHTML = d.recent.length
+      ? `<table><thead><tr>
+           <th>when</th><th>type</th><th>wallet</th><th class="n">usd</th><th>note</th>
+         </tr></thead><tbody>` +
+        d.recent.map(r => `<tr>
+          <td>${new Date(r.t).toLocaleString()}</td>
+          <td><span class="tag ${r.type}">${r.type}</span></td>
+          <td>${esc(r.wallet)}</td>
+          <td class="n">${r.type === 'topup' ? '+' : '−'}$${(+r.usd || 0).toFixed(4)}</td>
+          <td>${esc(r.note)}</td>
+        </tr>`).join('') + '</tbody></table>'
+      : '<div class="empty">ledger is empty</div>';
+
+  }catch(e){
+    $('stamp').textContent = 'refresh failed';
+  }
+}
+
+/* restore session */
+(async function restore(){
+  try{
+    const saved = sessionStorage.getItem('jct_session');
+    if(saved){
+      SESSION = saved;
+      const r = await fetch('/api/auth/me', { headers: sessionHeaders() });
+      const d = await r.json();
+      if(d.signed_in){
+        WALLET = { address: d.wallet, short: d.short };
+      }else{
+        SESSION = null;
+        sessionStorage.removeItem('jct_session');
+      }
+    }
+  }catch(_){ SESSION = null; }
+  paint();
+  if(WALLET) checkAdmin();
+})();
+
+$('walletBtn').onclick = () => WALLET ? disconnectWallet() : connectWallet();
+$('gateBtn').onclick   = () => connectWallet();
+</script>
+</body>
+</html>
