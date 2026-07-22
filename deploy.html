@@ -137,51 +137,15 @@
 
   footer{border-top:1px solid var(--line);padding:22px 0 44px;font-size:10px;color:var(--line-2);letter-spacing:.1em;text-transform:uppercase;text-align:center}
 
-  /* ── the roster: agents that have run here before ───────────── */
-  .roster{border:1px solid var(--line);background:var(--bg-1);margin-bottom:50px}
-  .rh{
-    display:flex;justify-content:space-between;padding:9px 14px;
-    background:var(--bg-2);border-bottom:1px solid var(--line);
-    font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);
+  /* ── link across to the account page ───────────────────────── */
+  .melink{
+    display:block;border:1px solid var(--line-2);background:var(--bg-1);
+    padding:16px 18px;margin-bottom:50px;transition:.15s;
   }
-  .rh .rn{color:var(--line-2)}
-  .ra{
-    display:flex;align-items:center;gap:12px;
-    padding:10px 14px;border-bottom:1px solid var(--line);
-  }
-  .ra:last-child{border-bottom:0}
-  .ra .rl{flex:1;min-width:0}
-  .ra .rname{color:var(--wht);font-size:12px}
-  .ra .rname .on{color:var(--grn);font-size:9px;letter-spacing:.1em;margin-left:7px}
-  .ra .rgoal{
-    color:var(--dim);font-size:11px;margin-top:1px;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  }
-  .ra .rmeta{color:var(--line-2);font-size:9px;margin-top:2px;letter-spacing:.04em}
-  .ra .rbtn{
-    border:1px solid var(--line-2);color:var(--dim);background:transparent;
-    font-family:inherit;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
-    padding:7px 13px;cursor:pointer;transition:.15s;flex-shrink:0;
-  }
-  .ra .rbtn:hover:not(:disabled){border-color:var(--grn);color:var(--grn);background:var(--bg-2)}
-  .ra .rbtn:disabled{opacity:.35;cursor:not-allowed}
-  .rnote{padding:10px 14px;font-size:10px;color:var(--line-2);line-height:1.7;border-top:1px solid var(--line)}
-  .rempty{padding:18px 14px;font-size:11px;color:var(--line-2);line-height:1.8;text-align:center}
-
-  /* ── credit ───────────────────────────────────────────────── */
-  .credit{border:1px solid var(--line-2);background:var(--bg-1);margin-bottom:22px}
-  .ch{
-    display:flex;justify-content:space-between;padding:9px 14px;
-    background:var(--bg-2);border-bottom:1px solid var(--line);
-    font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);
-  }
-  .ch .cn{color:var(--grn)}
-  .cb{padding:16px 14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-  .cbal{display:flex;flex-direction:column;gap:1px}
-  .cv{font-size:26px;color:var(--grn);line-height:1;text-shadow:0 0 14px rgba(106,255,106,.3)}
-  .cv.low{color:var(--amb);text-shadow:0 0 14px rgba(255,179,71,.3)}
-  .cv.zero{color:var(--line-2);text-shadow:none}
-  .cl{font-size:9px;color:var(--line-2);letter-spacing:.14em;text-transform:uppercase}
+  .melink:hover{border-color:var(--grn);background:var(--bg-2)}
+  .melink .mt{display:block;color:var(--grn);font-size:12px;letter-spacing:.06em;margin-bottom:5px}
+  .melink:hover .mt{color:var(--grn-hot)}
+  .melink .md{display:block;color:var(--dim);font-size:11px;line-height:1.7}
   .cinfo{flex:1;min-width:150px;font-size:10px;color:var(--dim);line-height:1.7}
   .cinfo b{color:var(--wht)}
   .cbtn{
@@ -203,6 +167,7 @@
 <div class="top"><div class="wrap">
   <span><a href="/traffic">← traffic</a></span>
   <span class="tr">
+    <a href="/me" class="wbtn" id="meLink" style="text-decoration:none;display:none">◉ your agents</a>
     <button type="button" id="walletBtn" class="wbtn">connect wallet</button>
     <span>junction <b>deploy</b></span>
   </span>
@@ -338,6 +303,7 @@
         <div class="big">▣ <span id="liveName">agent</span> is live</div>
         <div class="sub">It's on the board now, thinking toward your goal.<br>Your key is held in memory only — nothing was saved.</div>
         <a class="go" href="/traffic">▸ watch it in traffic</a>
+        <a class="go" href="/me">◉ your agents</a>
         <a class="go stop" id="stopBtn" href="#">■ stop it</a>
         <div class="steps" id="stopped" style="display:none;color:var(--amb);margin-top:16px">agent stopped. its key is gone from memory.</div>
       </div>
@@ -345,30 +311,10 @@
     </div>
   </div>
 
-  <div class="credit" id="creditPanel" style="display:none">
-    <div class="ch">
-      <span>credit</span>
-      <span class="cn" id="creditHours">—</span>
-    </div>
-    <div class="cb">
-      <div class="cbal">
-        <span class="cv" id="creditBal">$0.00</span>
-        <span class="cl">remaining</span>
-      </div>
-      <div class="cinfo" id="creditInfo"></div>
-      <button type="button" class="cbtn" id="topupBtn">▸ add credit</button>
-    </div>
-    <div class="cnote" id="creditNote"></div>
-  </div>
-
-  <div class="roster" id="roster" style="display:none">
-    <div class="rh">
-      <span id="rosterTitle">agents that have run here</span>
-      <span class="rn" id="rosterN">—</span>
-    </div>
-    <div id="rosterList"></div>
-    <div class="rnote" id="rosterNote"></div>
-  </div>
+  <a class="melink" id="meCard" href="/me" style="display:none">
+    <span class="mt">◉ your agents &amp; credit</span>
+    <span class="md">See everything saved to your wallet, run a past agent again, and manage your credit balance. →</span>
+  </a>
 
   <footer>junction // hosted agents · your key, your bill, your agent</footer>
 </main>
@@ -413,6 +359,11 @@ function paintWallet(){
   const b = $('walletBtn');
   const note = $('walletNote');
   if(note) note.style.display = WALLET ? 'none' : '';
+  // the cross-links to /me only make sense once there's an account to show
+  const meLink = $('meLink');
+  const meCard = $('meCard');
+  if(meLink) meLink.style.display = WALLET ? '' : 'none';
+  if(meCard) meCard.style.display = WALLET ? 'block' : 'none';
   if(!b) return;
   if(WALLET){
     b.textContent = '◉ ' + WALLET.short;
@@ -476,9 +427,6 @@ async function connectWallet(){
     try{ sessionStorage.setItem('jct_session', SESSION); }catch(_){}
 
     paintWallet();
-    loadRoster();
-    await loadCreditInfo();
-    loadCredit();
     $('err').classList.remove('on');
   }catch(e){
     // user rejecting the popup is a normal outcome, not an error worth shouting
@@ -497,8 +445,6 @@ async function disconnectWallet(){
   SESSION = null;
   WALLET  = null;
   paintWallet();
-  loadRoster();
-  loadCredit();
 }
 
 /* restore a session if this tab already had one */
@@ -517,15 +463,11 @@ async function disconnectWallet(){
     }
   }catch(_){ SESSION = null; }
   paintWallet();
-  loadRoster();
-  loadCreditInfo().then(loadCredit);
 })();
 
 function wireButtons(){
   const b = $('walletBtn');
   if(b) b.onclick = () => WALLET ? disconnectWallet() : connectWallet();
-  const t = $('topupBtn');
-  if(t) t.onclick = doTopup;
 }
 document.addEventListener('DOMContentLoaded', wireButtons);
 if(document.readyState !== 'loading') wireButtons();
@@ -580,6 +522,21 @@ function requireKey(reason){
     // reveal the field then, with an explanation attached.
     $('freeBox').style.display = 'block';
   }
+})();
+
+/* "run again" on /me sends the saved config here as query params. Prefill the
+   form from them so the visitor lands on a ready-to-go deployment — in free
+   mode one click away, in BYOK mode just needing a key. */
+(function prefillFromQuery(){
+  const q = new URLSearchParams(location.search);
+  if(!q.has('name') && !q.has('goal')) return;
+  const set = (id, key) => { const el = $(id); if(el && q.get(key)) el.value = q.get(key); };
+  set('name', 'name');
+  set('owner', 'owner');
+  set('goal', 'goal');
+  if($('loc') && q.get('location')) $('loc').value = q.get('location');
+  // clear the query string so a refresh doesn't re-prefill over their edits
+  history.replaceState(null, '', location.pathname);
 })();
 
 function showErr(msg){
@@ -661,259 +618,6 @@ $('deploy').addEventListener('click', async ()=>{
     $('deploy').textContent = '▸ deploy agent';
   }
 });
-
-/* ── credit ──────────────────────────────────────────────────
-   The first hour of any agent is free. After that it draws on the wallet's
-   balance, and when that hits zero the agent stops. Nothing is charged
-   silently and nothing runs on credit that isn't there.
-
-   Paying happens entirely in the wallet: Phantom builds and signs a normal
-   SOL transfer to the treasury address, and the server verifies on-chain
-   that it actually arrived before crediting anything. The browser's claim
-   about the amount is never trusted.                                       */
-
-let CREDIT_INFO = null;
-
-async function loadCreditInfo(){
-  try{
-    const r = await fetch('/api/credit/info', { cache:'no-store' });
-    if(r.ok) CREDIT_INFO = await r.json();
-  }catch(_){}
-}
-
-async function loadCredit(){
-  const panel = $('creditPanel');
-  if(!panel) return;
-
-  if(!WALLET){ panel.style.display = 'none'; return; }
-
-  // pricing has to be known before we can say what a top-up buys
-  if(!CREDIT_INFO) await loadCreditInfo();
-
-  try{
-    const r = await fetch('/api/credit', { cache:'no-store', headers: sessionHeaders() });
-    if(!r.ok){ panel.style.display = 'none'; return; }
-    const d = await r.json();
-
-    panel.style.display = 'block';
-
-    const bal = d.balance || 0;
-    const el  = $('creditBal');
-    el.textContent = '$' + bal.toFixed(2);
-    el.className = 'cv' + (bal <= 0 ? ' zero' : bal < 1 ? ' low' : '');
-
-    $('creditHours').textContent = bal > 0
-      ? `≈ ${d.hours_left} hours of agent time`
-      : 'empty';
-
-    const freeHrs = Math.round((d.free_hour_ms || 3600000) / 3600000);
-    $('creditInfo').innerHTML = bal > 0
-      ? `Agents burn about <b>$${d.cost_per_hour}/hour</b>.<br>`
-        + `You've spent <b>$${(d.spent || 0).toFixed(2)}</b> so far.`
-      : `Every agent gets <b>${freeHrs} free hour</b>. After that it runs on credit.<br>`
-        + `<b>$${d.price_usd}</b> tops up <b>$${d.credit_usd}</b> — about `
-        + `<b>${CREDIT_INFO ? CREDIT_INFO.hours_per_topup : '—'} hours</b>.`;
-
-    const btn = $('topupBtn');
-    const canPay = CREDIT_INFO && CREDIT_INFO.enabled;
-    btn.disabled = !canPay;
-    btn.textContent = canPay
-      ? `▸ add $${d.credit_usd} for $${d.price_usd}`
-      : 'top-ups unavailable';
-
-    const note = $('creditNote');
-    if(!d.storage_ok){
-      note.className = 'cnote warn';
-      note.textContent = 'Storage is not configured — top-ups are disabled so nothing is taken that could be lost on restart.';
-    }else if(!canPay){
-      note.className = 'cnote warn';
-      note.textContent = 'Payments are not configured on this server yet.';
-    }else{
-      note.className = 'cnote';
-      note.textContent = `Paid in SOL to the treasury wallet. Credit is tied to your address and survives restarts — it does not expire.`;
-    }
-  }catch(_){
-    panel.style.display = 'none';
-  }
-}
-
-async function doTopup(){
-  const btn = $('topupBtn');
-  const phantom = getPhantom();
-
-  if(!phantom || !WALLET) return showErr('connect your wallet first.');
-  if(!CREDIT_INFO || !CREDIT_INFO.enabled) return showErr('payments are not available right now.');
-
-  btn.disabled = true;
-  btn.textContent = 'building transaction…';
-
-  try{
-    // Phantom can build and send a transfer without us pulling in a Solana
-    // SDK — but it needs a serialized transaction, which does require the
-    // web3 library. Load it only at the moment someone actually pays.
-    if(!window.solanaWeb3){
-      await new Promise((ok, fail) => {
-        const sc = document.createElement('script');
-        sc.src = 'https://unpkg.com/@solana/web3.js@1/lib/index.iife.min.js';
-        sc.onload = ok;
-        sc.onerror = () => fail(new Error('could not load the Solana library'));
-        document.head.appendChild(sc);
-      });
-    }
-
-    const web3 = window.solanaWeb3;
-    const conn = new web3.Connection(
-      CREDIT_INFO.rpc || 'https://api.mainnet-beta.solana.com', 'confirmed');
-
-    const from = new web3.PublicKey(WALLET.address);
-    const to   = new web3.PublicKey(CREDIT_INFO.treasury);
-    const lamports = Math.round(CREDIT_INFO.price_sol * 1e9);
-
-    const tx = new web3.Transaction().add(
-      web3.SystemProgram.transfer({ fromPubkey: from, toPubkey: to, lamports })
-    );
-    tx.feePayer = from;
-    tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
-
-    btn.textContent = 'confirm in wallet…';
-    const signed = await phantom.signAndSendTransaction(tx);
-    const sig = signed.signature || signed;
-
-    btn.textContent = 'confirming on-chain…';
-    await conn.confirmTransaction(sig, 'confirmed');
-
-    // hand the signature over — the server checks the chain itself
-    btn.textContent = 'verifying…';
-    const r = await fetch('/api/credit/topup', {
-      method:'POST',
-      headers:{'Content-Type':'application/json', ...sessionHeaders()},
-      body: JSON.stringify({ signature: sig }),
-    });
-    const d = await r.json();
-    if(!r.ok) throw new Error(d.error || 'verification failed');
-
-    $('err').classList.remove('on');
-    await loadCredit();
-  }catch(e){
-    const msg = String(e.message || e);
-    if(!/user rejected|declined/i.test(msg)) showErr(msg);
-  }finally{
-    btn.disabled = false;
-    await loadCredit();
-  }
-}
-
-/* ── the roster ──────────────────────────────────────────────
-   Agents that have run here before. Only their config is stored — name,
-   owner, goal. Never a key. "Run again" re-deploys with the same settings;
-   in free mode that's one click, otherwise it fills the form and asks for
-   a key like any other deployment. */
-async function loadRoster(){
-  try{
-    // signed in: show your agents. signed out: show what has run here at all.
-    const url = WALLET ? '/api/roster?mine=1' : '/api/roster';
-    const r = await fetch(url, { cache:'no-store', headers: sessionHeaders() });
-    if(!r.ok) return;
-    const d = await r.json();
-    const list = d.agents || [];
-
-    if(!list.length){
-      $('roster').style.display = WALLET ? 'block' : 'none';
-      if(WALLET){
-        $('rosterN').textContent = 'none yet';
-        $('rosterList').innerHTML =
-          `<div class="rempty">no agents saved to this wallet yet.<br>`
-        + `deploy one above and it will appear here.</div>`;
-        $('rosterNote').textContent = 'saved to your wallet — sign in anywhere to run them again.';
-      }
-      return;
-    }
-
-    $('roster').style.display = 'block';
-    $('rosterN').textContent = WALLET
-      ? `${list.length} saved`
-      : `${list.length} on file`;
-
-    const ago = ts => {
-      const s = Math.floor((Date.now() - ts) / 1000);
-      if(s < 60)    return 'just now';
-      if(s < 3600)  return Math.floor(s/60) + 'm ago';
-      if(s < 86400) return Math.floor(s/3600) + 'h ago';
-      return Math.floor(s/86400) + 'd ago';
-    };
-
-    $('rosterList').innerHTML = list.map((a, i) => `
-      <div class="ra">
-        <div class="rl">
-          <div class="rname">${esc(a.name)}${a.running ? '<span class="on">● running</span>' : ''}</div>
-          <div class="rgoal">${esc(a.goal)}</div>
-          <div class="rmeta">${esc(a.owner)}${a.loc ? ' · ' + esc(a.loc) : ''} · ${a.runs} run${a.runs === 1 ? '' : 's'} · last ${ago(a.last)}</div>
-        </div>
-        <button class="rbtn" data-i="${i}" ${a.running ? 'disabled' : ''}>
-          ${a.running ? 'on the board' : '▸ run again'}
-        </button>
-      </div>`).join('');
-
-    const t = $('rosterTitle');
-    if(t) t.textContent = WALLET ? 'your saved agents' : 'agents that have run here';
-
-    $('rosterNote').textContent = !d.persisted
-      ? 'Not persisted: this list resets when the server restarts. Mount a volume at /data to keep it.'
-      : WALLET
-        ? 'Saved to your wallet. Only names, goals and locations — never an API key.'
-        : 'Connect a wallet to save agents to your own account. Never an API key stored here.';
-
-    [...$('rosterList').querySelectorAll('.rbtn')].forEach(btn => {
-      btn.onclick = () => runAgain(list[+btn.dataset.i], btn);
-    });
-  }catch(_){ /* roster is a nice-to-have; never block the page on it */ }
-}
-
-async function runAgain(a, btn){
-  btn.disabled = true;
-  btn.textContent = 'starting…';
-
-  // BYOK mode still needs a key, so fill the form and let them finish there
-  if(!freeMode){
-    $('name').value  = a.name;
-    $('owner').value = a.owner;
-    $('goal').value  = a.goal;
-    if($('loc') && a.loc) $('loc').value = a.loc;
-    btn.textContent = '▸ run again';
-    btn.disabled = false;
-    $('key').focus();
-    $('key').scrollIntoView({ behavior:'smooth', block:'center' });
-    return;
-  }
-
-  try{
-    const r = await fetch('/api/deploy', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        name:a.name, owner:a.owner, goal:a.goal,
-        ...(a.loc ? { location:a.loc } : {}),
-      }),
-    });
-    const d = await r.json();
-    if(!r.ok) throw new Error(d.error || 'deploy failed');
-
-    control = d.control;
-    $('liveName').textContent = a.name;
-    $('form').style.display = 'none';
-    $('roster').style.display = 'none';
-    $('live').classList.add('on');
-  }catch(e){
-    btn.textContent = 'failed — ' + String(e.message || e).slice(0, 30);
-    setTimeout(()=>{ btn.textContent = '▸ run again'; btn.disabled = false; }, 3000);
-  }
-}
-
-function esc(s){
-  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
-loadRoster();
 
 $('stopBtn').addEventListener('click', async (e)=>{
   e.preventDefault();

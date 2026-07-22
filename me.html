@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YOUR AGENTS // JUNCTION</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#000; --bg-1:#060906; --bg-2:#0c130c;
+    --line:#1c3f1c; --line-2:#2d6b2d; --dim:#4d8f4d; --mid:#7fd47f;
+    --grn:#6aff6a; --grn-hot:#b6ffb6; --wht:#eaffea;
+    --amb:#ffb347; --red:#ff5555; --cyan:#5affff;
+    --f:"JetBrains Mono",ui-monospace,"DejaVu Sans Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg);color:var(--mid);font-family:var(--f);
+    font-size:13px;line-height:1.6;min-height:100vh;
+    background-image:
+      radial-gradient(ellipse 100% 60% at 50% -10%, rgba(106,255,106,.06), transparent 60%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.14) 2px 3px);
+  }
+  ::selection{background:var(--grn);color:#000}
+  a{color:var(--grn);text-decoration:none}
+  a:hover{color:var(--grn-hot)}
+  .wrap{max-width:600px;margin:0 auto;padding:0 20px}
+
+  .top{border-bottom:1px solid var(--line);background:var(--bg-1)}
+  .top .wrap{display:flex;justify-content:space-between;align-items:center;height:42px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .top .tr{display:flex;align-items:center;gap:14px}
+  .wbtn{
+    background:transparent;border:1px solid var(--line-2);color:var(--dim);
+    font-family:inherit;font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+    padding:5px 11px;cursor:pointer;transition:.15s;white-space:nowrap;
+  }
+  .wbtn:hover{border-color:var(--grn);color:var(--grn);background:var(--bg-2)}
+  .wbtn.on{border-color:var(--grn);color:var(--grn)}
+  .wbtn:disabled{opacity:.5;cursor:wait}
+  .top b{color:var(--grn);font-weight:400}
+
+  header{padding:44px 0 0}
+  .tag{display:inline-block;border:1px solid var(--line-2);color:var(--grn);padding:4px 11px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;margin-bottom:16px}
+  h1{font-size:clamp(22px,4vw,30px);font-weight:700;color:var(--wht);letter-spacing:-.01em;text-shadow:0 0 24px rgba(106,255,106,.25)}
+  .lede{color:var(--dim);font-size:13px;margin-top:10px;line-height:1.7}
+
+  .err{color:var(--red);font-size:12px;margin-top:8px;display:none}
+  .err.on{display:block}
+
+  footer{border-top:1px solid var(--line);padding:22px 0 44px;font-size:10px;color:var(--line-2);letter-spacing:.1em;text-transform:uppercase;text-align:center}
+
+  /* ── the sign-in prompt, shown when no wallet is connected ──── */
+  .signin{
+    border:1px solid var(--line-2);background:var(--bg-1);
+    padding:26px 22px;margin:26px 0 60px;text-align:center;
+  }
+  .signin .st{color:var(--wht);font-size:14px;margin-bottom:10px}
+  .signin .sd{color:var(--dim);font-size:12px;line-height:1.8;margin-bottom:20px}
+  .signin .sbtn{
+    background:var(--grn);border:1px solid var(--grn);color:#000;
+    font-family:inherit;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+    padding:13px 26px;cursor:pointer;transition:.15s;
+  }
+  .signin .sbtn:hover{background:var(--grn-hot);border-color:var(--grn-hot)}
+  .signin .sbtn:disabled{opacity:.5;cursor:wait}
+  .signin .wsafe{
+    display:block;margin-top:16px;padding-top:14px;
+    border-top:1px solid var(--line);color:var(--line-2);font-size:10px;line-height:1.75;
+  }
+  .signin .wsafe b{color:var(--amb)}
+
+  /* wrapper around everything that needs a connected wallet */
+  .signed{display:none}
+  .signed.on{display:block}
+
+  /* ── credit ───────────────────────────────────────────────── */
+  .credit{border:1px solid var(--line-2);background:var(--bg-1);margin:26px 0 22px}
+  .ch{
+    display:flex;justify-content:space-between;padding:9px 14px;
+    background:var(--bg-2);border-bottom:1px solid var(--line);
+    font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);
+  }
+  .ch .cn{color:var(--grn)}
+  .cb{padding:16px 14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .cbal{display:flex;flex-direction:column;gap:1px}
+  .cv{font-size:26px;color:var(--grn);line-height:1;text-shadow:0 0 14px rgba(106,255,106,.3)}
+  .cv.low{color:var(--amb);text-shadow:0 0 14px rgba(255,179,71,.3)}
+  .cv.zero{color:var(--line-2);text-shadow:none}
+  .cl{font-size:9px;color:var(--line-2);letter-spacing:.14em;text-transform:uppercase}
+  .cinfo{flex:1;min-width:150px;font-size:10px;color:var(--dim);line-height:1.7}
+  .cinfo b{color:var(--wht)}
+  .cbtn{
+    background:transparent;border:1px solid var(--grn);color:var(--grn);
+    font-family:inherit;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    padding:11px 18px;cursor:pointer;transition:.15s;white-space:nowrap;
+  }
+  .cbtn:hover{background:var(--grn);color:#000}
+  .cbtn:disabled{opacity:.4;cursor:not-allowed}
+  .cnote{
+    padding:10px 14px;font-size:10px;color:var(--line-2);
+    line-height:1.7;border-top:1px solid var(--line);
+  }
+  .cnote.warn{color:var(--amb)}
+
+  /* ── the roster: agents that have run here before ───────────── */
+  .roster{border:1px solid var(--line);background:var(--bg-1);margin-bottom:50px}
+  .rh{
+    display:flex;justify-content:space-between;padding:9px 14px;
+    background:var(--bg-2);border-bottom:1px solid var(--line);
+    font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);
+  }
+  .rh .rn{color:var(--line-2)}
+  .ra{
+    display:flex;align-items:center;gap:12px;
+    padding:10px 14px;border-bottom:1px solid var(--line);
+  }
+  .ra:last-child{border-bottom:0}
+  .ra .rl{flex:1;min-width:0}
+  .ra .rname{color:var(--wht);font-size:12px}
+  .ra .rname .on{color:var(--grn);font-size:9px;letter-spacing:.1em;margin-left:7px}
+  .ra .rgoal{
+    color:var(--dim);font-size:11px;margin-top:1px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .ra .rmeta{color:var(--line-2);font-size:9px;margin-top:2px;letter-spacing:.04em}
+  .ra .rbtn{
+    border:1px solid var(--line-2);color:var(--dim);background:transparent;
+    font-family:inherit;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+    padding:7px 13px;cursor:pointer;transition:.15s;flex-shrink:0;
+  }
+  .ra .rbtn:hover:not(:disabled){border-color:var(--grn);color:var(--grn);background:var(--bg-2)}
+  .ra .rbtn:disabled{opacity:.35;cursor:not-allowed}
+  .rnote{padding:10px 14px;font-size:10px;color:var(--line-2);line-height:1.7;border-top:1px solid var(--line)}
+  .rempty{padding:18px 14px;font-size:11px;color:var(--line-2);line-height:1.8;text-align:center}
+</style>
+</head>
+<body>
+
+<div class="top"><div class="wrap">
+  <span><a href="/deploy">← deploy</a></span>
+  <span class="tr">
+    <button type="button" id="walletBtn" class="wbtn">connect wallet</button>
+    <span>junction <b>you</b></span>
+  </span>
+</div></div>
+
+<main class="wrap">
+  <header>
+    <span class="tag">▸ your account</span>
+    <h1>Your agents &amp; credit.</h1>
+    <p class="lede">Everything you've deployed, saved to your wallet — plus the credit that keeps them thinking. Sign in with the same address anywhere to pick up where you left off.</p>
+  </header>
+
+  <!-- shown when signed out -->
+  <div class="signin" id="signin">
+    <div class="st">▸ connect a wallet to see your agents.</div>
+    <div class="sd">
+      Sign in with Phantom and everything you deploy is saved to your address —
+      your roster and your credit balance, ready whenever you come back.
+    </div>
+    <button type="button" class="sbtn" id="signinBtn">connect wallet</button>
+    <span class="wsafe"><b>▲ this asks for a signature, never a transaction.</b><br>
+    It cannot move funds and costs no gas. Junction stores your public address
+    and nothing else — no key, no email, no password.</span>
+  </div>
+
+  <!-- shown when signed in -->
+  <div class="signed" id="signed">
+
+    <div class="credit" id="creditPanel" style="display:none">
+      <div class="ch">
+        <span>credit</span>
+        <span class="cn" id="creditHours">—</span>
+      </div>
+      <div class="cb">
+        <div class="cbal">
+          <span class="cv" id="creditBal">$0.00</span>
+          <span class="cl">remaining</span>
+        </div>
+        <div class="cinfo" id="creditInfo"></div>
+        <button type="button" class="cbtn" id="topupBtn">▸ add credit</button>
+      </div>
+      <div class="cnote" id="creditNote"></div>
+    </div>
+
+    <div class="roster" id="roster" style="display:none">
+      <div class="rh">
+        <span id="rosterTitle">your saved agents</span>
+        <span class="rn" id="rosterN">—</span>
+      </div>
+      <div id="rosterList"></div>
+      <div class="rnote" id="rosterNote"></div>
+    </div>
+
+  </div>
+
+  <div class="err" id="err"></div>
+
+  <footer>junction // hosted agents · your key, your bill, your agent</footer>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+/* ══ WALLET SIGN-IN ═══════════════════════════════════════════
+   Signing in proves you own an address; it is not a transaction and moves
+   nothing. The session token lives in sessionStorage so it dies with the
+   tab — deliberately shorter-lived than a cookie, because nothing here is
+   worth keeping around longer than the visit.
+
+   base58 is needed on this side too, to encode the signature Phantom hands
+   back as raw bytes.                                                       */
+const B58A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function b58encode(bytes){
+  let zeros = 0;
+  while(zeros < bytes.length && bytes[zeros] === 0) zeros++;
+  const digits = [0];
+  for(let i = zeros; i < bytes.length; i++){
+    let carry = bytes[i];
+    for(let j = 0; j < digits.length; j++){
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while(carry){ digits.push(carry % 58); carry = (carry / 58) | 0; }
+  }
+  return '1'.repeat(zeros) + digits.reverse().map(d => B58A[d]).join('');
+}
+
+let SESSION = null;
+let WALLET  = null;
+
+function sessionHeaders(){
+  return SESSION ? { 'X-Junction-Session': SESSION } : {};
+}
+
+function paintWallet(){
+  const b = $('walletBtn');
+  if(b){
+    if(WALLET){
+      b.textContent = '◉ ' + WALLET.short;
+      b.classList.add('on');
+      b.title = 'signed in — click to sign out';
+    }else{
+      b.textContent = 'connect wallet';
+      b.classList.remove('on');
+      b.title = 'sign in with Phantom to keep your agents';
+    }
+    b.disabled = false;
+  }
+  // swap the whole view: sign-in prompt vs. the signed-in dashboard
+  $('signin').style.display = WALLET ? 'none' : '';
+  $('signed').classList.toggle('on', !!WALLET);
+}
+
+function getPhantom(){
+  // Phantom injects at window.phantom.solana; older builds used window.solana
+  const p = window.phantom?.solana || window.solana;
+  return (p && p.isPhantom) ? p : null;
+}
+
+async function connectWallet(){
+  const b = $('walletBtn');
+  const sb = $('signinBtn');
+  const phantom = getPhantom();
+
+  if(!phantom){
+    // Don't silently fail — most people who see this simply don't have it yet.
+    showErr('Phantom wallet not found. Install it at phantom.app, then reload this page.');
+    return;
+  }
+
+  if(b){ b.disabled = true; b.textContent = 'connecting…'; }
+  if(sb){ sb.disabled = true; sb.textContent = 'connecting…'; }
+
+  try{
+    const resp   = await phantom.connect();
+    const wallet = resp.publicKey.toString();
+
+    // 1. ask the server for something to sign
+    const cr = await fetch('/api/auth/challenge', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ wallet }),
+    });
+    const cd = await cr.json();
+    if(!cr.ok) throw new Error(cd.error || 'could not start sign-in');
+
+    // 2. sign it — this is a message, not a transaction
+    const encoded = new TextEncoder().encode(cd.message);
+    const signed  = await phantom.signMessage(encoded, 'utf8');
+
+    // 3. hand it back for verification
+    const vr = await fetch('/api/auth/verify', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        wallet, nonce: cd.nonce, signature: b58encode(signed.signature),
+      }),
+    });
+    const vd = await vr.json();
+    if(!vr.ok) throw new Error(vd.error || 'sign-in failed');
+
+    SESSION = vd.session;
+    WALLET  = { address: vd.wallet, short: vd.short };
+    try{ sessionStorage.setItem('jct_session', SESSION); }catch(_){}
+
+    paintWallet();
+    loadRoster();
+    await loadCreditInfo();
+    loadCredit();
+    $('err').classList.remove('on');
+  }catch(e){
+    // user rejecting the popup is a normal outcome, not an error worth shouting
+    const msg = String(e.message || e);
+    if(!/user rejected|declined/i.test(msg)) showErr(msg);
+    paintWallet();
+  }finally{
+    if(sb){ sb.disabled = false; sb.textContent = 'connect wallet'; }
+  }
+}
+
+async function disconnectWallet(){
+  try{
+    await fetch('/api/auth/logout', { method:'POST', headers: sessionHeaders() });
+  }catch(_){}
+  try{ sessionStorage.removeItem('jct_session'); }catch(_){}
+  try{ getPhantom()?.disconnect(); }catch(_){}
+  SESSION = null;
+  WALLET  = null;
+  paintWallet();
+}
+
+/* restore a session if this tab already had one */
+(async function restoreSession(){
+  try{
+    const saved = sessionStorage.getItem('jct_session');
+    if(!saved){ paintWallet(); return; }
+    SESSION = saved;
+    const r = await fetch('/api/auth/me', { headers: sessionHeaders() });
+    const d = await r.json();
+    if(d.signed_in){
+      WALLET = { address: d.wallet, short: d.short };
+    }else{
+      SESSION = null;
+      sessionStorage.removeItem('jct_session');
+    }
+  }catch(_){ SESSION = null; }
+  paintWallet();
+  if(WALLET){
+    loadRoster();
+    loadCreditInfo().then(loadCredit);
+  }
+})();
+
+function wireButtons(){
+  const b = $('walletBtn');
+  if(b) b.onclick = () => WALLET ? disconnectWallet() : connectWallet();
+  const sb = $('signinBtn');
+  if(sb) sb.onclick = connectWallet;
+  const t = $('topupBtn');
+  if(t) t.onclick = doTopup;
+}
+document.addEventListener('DOMContentLoaded', wireButtons);
+if(document.readyState !== 'loading') wireButtons();
+
+function showErr(msg){
+  const e = $('err');
+  e.textContent = msg;
+  e.classList.add('on');
+}
+
+/* ── credit ──────────────────────────────────────────────────
+   The first hour of any agent is free. After that it draws on the wallet's
+   balance, and when that hits zero the agent stops. Nothing is charged
+   silently and nothing runs on credit that isn't there.
+
+   Paying happens entirely in the wallet: Phantom builds and signs a normal
+   SOL transfer to the treasury address, and the server verifies on-chain
+   that it actually arrived before crediting anything. The browser's claim
+   about the amount is never trusted.                                       */
+
+let CREDIT_INFO = null;
+
+async function loadCreditInfo(){
+  try{
+    const r = await fetch('/api/credit/info', { cache:'no-store' });
+    if(r.ok) CREDIT_INFO = await r.json();
+  }catch(_){}
+}
+
+async function loadCredit(){
+  const panel = $('creditPanel');
+  if(!panel) return;
+
+  if(!WALLET){ panel.style.display = 'none'; return; }
+
+  // pricing has to be known before we can say what a top-up buys
+  if(!CREDIT_INFO) await loadCreditInfo();
+
+  try{
+    const r = await fetch('/api/credit', { cache:'no-store', headers: sessionHeaders() });
+    if(!r.ok){ panel.style.display = 'none'; return; }
+    const d = await r.json();
+
+    panel.style.display = 'block';
+
+    const bal = d.balance || 0;
+    const el  = $('creditBal');
+    el.textContent = '$' + bal.toFixed(2);
+    el.className = 'cv' + (bal <= 0 ? ' zero' : bal < 1 ? ' low' : '');
+
+    $('creditHours').textContent = bal > 0
+      ? `≈ ${d.hours_left} hours of agent time`
+      : 'empty';
+
+    const freeHrs = Math.round((d.free_hour_ms || 3600000) / 3600000);
+    $('creditInfo').innerHTML = bal > 0
+      ? `Agents burn about <b>$${d.cost_per_hour}/hour</b>.<br>`
+        + `You've spent <b>$${(d.spent || 0).toFixed(2)}</b> so far.`
+      : `Every agent gets <b>${freeHrs} free hour</b>. After that it runs on credit.<br>`
+        + `<b>$${d.price_usd}</b> tops up <b>$${d.credit_usd}</b> — about `
+        + `<b>${CREDIT_INFO ? CREDIT_INFO.hours_per_topup : '—'} hours</b>.`;
+
+    const btn = $('topupBtn');
+    const canPay = CREDIT_INFO && CREDIT_INFO.enabled;
+    btn.disabled = !canPay;
+    btn.textContent = canPay
+      ? `▸ add $${d.credit_usd} for $${d.price_usd}`
+      : 'top-ups unavailable';
+
+    const note = $('creditNote');
+    if(!d.storage_ok){
+      note.className = 'cnote warn';
+      note.textContent = 'Storage is not configured — top-ups are disabled so nothing is taken that could be lost on restart.';
+    }else if(!canPay){
+      note.className = 'cnote warn';
+      note.textContent = 'Payments are not configured on this server yet.';
+    }else{
+      note.className = 'cnote';
+      note.textContent = `Paid in SOL to the treasury wallet. Credit is tied to your address and survives restarts — it does not expire.`;
+    }
+  }catch(_){
+    panel.style.display = 'none';
+  }
+}
+
+async function doTopup(){
+  const btn = $('topupBtn');
+  const phantom = getPhantom();
+
+  if(!phantom || !WALLET) return showErr('connect your wallet first.');
+  if(!CREDIT_INFO || !CREDIT_INFO.enabled) return showErr('payments are not available right now.');
+
+  btn.disabled = true;
+  btn.textContent = 'building transaction…';
+
+  try{
+    // Phantom can build and send a transfer without us pulling in a Solana
+    // SDK — but it needs a serialized transaction, which does require the
+    // web3 library. Load it only at the moment someone actually pays.
+    if(!window.solanaWeb3){
+      await new Promise((ok, fail) => {
+        const sc = document.createElement('script');
+        sc.src = 'https://unpkg.com/@solana/web3.js@1/lib/index.iife.min.js';
+        sc.onload = ok;
+        sc.onerror = () => fail(new Error('could not load the Solana library'));
+        document.head.appendChild(sc);
+      });
+    }
+
+    const web3 = window.solanaWeb3;
+    const conn = new web3.Connection(
+      CREDIT_INFO.rpc || 'https://api.mainnet-beta.solana.com', 'confirmed');
+
+    const from = new web3.PublicKey(WALLET.address);
+    const to   = new web3.PublicKey(CREDIT_INFO.treasury);
+    const lamports = Math.round(CREDIT_INFO.price_sol * 1e9);
+
+    const tx = new web3.Transaction().add(
+      web3.SystemProgram.transfer({ fromPubkey: from, toPubkey: to, lamports })
+    );
+    tx.feePayer = from;
+    tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
+
+    btn.textContent = 'confirm in wallet…';
+    const signed = await phantom.signAndSendTransaction(tx);
+    const sig = signed.signature || signed;
+
+    btn.textContent = 'confirming on-chain…';
+    await conn.confirmTransaction(sig, 'confirmed');
+
+    // hand the signature over — the server checks the chain itself
+    btn.textContent = 'verifying…';
+    const r = await fetch('/api/credit/topup', {
+      method:'POST',
+      headers:{'Content-Type':'application/json', ...sessionHeaders()},
+      body: JSON.stringify({ signature: sig }),
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || 'verification failed');
+
+    $('err').classList.remove('on');
+    await loadCredit();
+  }catch(e){
+    const msg = String(e.message || e);
+    if(!/user rejected|declined/i.test(msg)) showErr(msg);
+  }finally{
+    btn.disabled = false;
+    await loadCredit();
+  }
+}
+
+/* ── the roster ──────────────────────────────────────────────
+   Agents that have run here before. Only their config is stored — name,
+   owner, goal. Never a key. "Run again" re-deploys with the same settings.
+   Since the deploy form now lives on its own page, re-running hands the
+   config to /deploy as query params and lets that page finish the job —
+   one flow for every deployment, free or BYOK. */
+async function loadRoster(){
+  try{
+    if(!WALLET){ $('roster').style.display = 'none'; return; }
+    const r = await fetch('/api/roster?mine=1', { cache:'no-store', headers: sessionHeaders() });
+    if(!r.ok) return;
+    const d = await r.json();
+    const list = d.agents || [];
+
+    if(!list.length){
+      $('roster').style.display = 'block';
+      $('rosterN').textContent = 'none yet';
+      $('rosterList').innerHTML =
+        `<div class="rempty">no agents saved to this wallet yet.<br>`
+      + `<a href="/deploy">deploy one</a> and it will appear here.</div>`;
+      $('rosterNote').textContent = 'saved to your wallet — sign in anywhere to run them again.';
+      return;
+    }
+
+    $('roster').style.display = 'block';
+    $('rosterN').textContent = `${list.length} saved`;
+
+    const ago = ts => {
+      const s = Math.floor((Date.now() - ts) / 1000);
+      if(s < 60)    return 'just now';
+      if(s < 3600)  return Math.floor(s/60) + 'm ago';
+      if(s < 86400) return Math.floor(s/3600) + 'h ago';
+      return Math.floor(s/86400) + 'd ago';
+    };
+
+    $('rosterList').innerHTML = list.map((a, i) => `
+      <div class="ra">
+        <div class="rl">
+          <div class="rname">${esc(a.name)}${a.running ? '<span class="on">● running</span>' : ''}</div>
+          <div class="rgoal">${esc(a.goal)}</div>
+          <div class="rmeta">${esc(a.owner)}${a.loc ? ' · ' + esc(a.loc) : ''} · ${a.runs} run${a.runs === 1 ? '' : 's'} · last ${ago(a.last)}</div>
+        </div>
+        <button class="rbtn" data-i="${i}" ${a.running ? 'disabled' : ''}>
+          ${a.running ? 'on the board' : '▸ run again'}
+        </button>
+      </div>`).join('');
+
+    const t = $('rosterTitle');
+    if(t) t.textContent = 'your saved agents';
+
+    $('rosterNote').textContent = !d.persisted
+      ? 'Not persisted: this list resets when the server restarts. Mount a volume at /data to keep it.'
+      : 'Saved to your wallet. Only names, goals and locations — never an API key.';
+
+    [...$('rosterList').querySelectorAll('.rbtn')].forEach(btn => {
+      btn.onclick = () => runAgain(list[+btn.dataset.i], btn);
+    });
+  }catch(_){ /* roster is a nice-to-have; never block the page on it */ }
+}
+
+function runAgain(a, btn){
+  // Hand the saved config to the deploy page and let it take over. It'll
+  // prefill the form and — in BYOK mode — ask for a key like any deployment.
+  btn.disabled = true;
+  btn.textContent = 'opening…';
+  const q = new URLSearchParams({ name: a.name, owner: a.owner || '', goal: a.goal });
+  if(a.loc) q.set('location', a.loc);
+  window.location.href = '/deploy?' + q.toString();
+}
+
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>
