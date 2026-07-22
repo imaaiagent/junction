@@ -57,7 +57,7 @@
   }
 
   async function makeWCProvider(){
-    const pid = window.JUNCTION_WC_PROJECT_ID; e2f869b40897760efa5c13c95ec6de22
+    const pid = window.JUNCTION_WC_PROJECT_ID;
     if(!pid) throw new Error('WalletConnect is not configured on this page');
     await loadWC();
     const EthereumProvider =
