@@ -370,6 +370,13 @@ function handleHeartbeat(req, res){
       if(k === 'tool'){ REG.world.tools++; a.toolsUsed++; }
       if(k === 'err'){  REG.world.fails++; a.fails++; }
       if(k === 'ok'){   REG.world.tasks++; }
+    } else if(p.thought !== undefined && a.thought && a.thought !== a._lastFeedThought){
+      // No explicit event, but the agent reported a NEW thought. That thought
+      // IS the interesting thing — surface it on the feed and timeline rather
+      // than letting it vanish. Guard on _lastFeedThought so a repeated
+      // heartbeat carrying the same thought doesn't spam the feed.
+      a._lastFeedThought = a.thought;
+      pushEvent(a, a.thought, a.tool && a.tool !== '—' ? 'tool' : 'info');
     } else {
       REG.world.tick++;
     }
