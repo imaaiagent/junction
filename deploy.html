@@ -172,7 +172,35 @@
     line-height:1.7;border-top:1px solid var(--line);
   }
   .cnote.warn{color:var(--amb)}
+  /* ── wallet picker modal ───────────────────────────────────── */
+  #wpick{
+    display:none;position:fixed;inset:0;z-index:50;
+    background:rgba(0,0,0,.72);align-items:center;justify-content:center;padding:20px;
+  }
+  .wpick-card{
+    width:100%;max-width:360px;border:1px solid var(--line-2);background:var(--bg-1);
+    padding:18px;display:flex;flex-direction:column;gap:10px;
+  }
+  .wpick-t{color:var(--wht);font-size:13px;letter-spacing:.06em;margin-bottom:4px}
+  .wpick-opt{
+    text-align:left;background:var(--bg-2);border:1px solid var(--line-2);
+    color:var(--mid);font-family:inherit;padding:13px 14px;cursor:pointer;transition:.15s;
+    display:flex;flex-direction:column;gap:3px;
+  }
+  .wpick-opt:hover{border-color:var(--grn);background:var(--bg-1)}
+  .wpick-opt .wpick-n{color:var(--grn);font-size:12px;letter-spacing:.04em}
+  .wpick-opt .wpick-d{color:var(--dim);font-size:10px;line-height:1.5}
+  .wpick-x{
+    background:transparent;border:0;color:var(--line-2);font-family:inherit;
+    font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:8px;cursor:pointer;
+  }
+  .wpick-x:hover{color:var(--dim)}
 </style>
+<script>
+  window.JUNCTION_WC_PROJECT_ID = 'REPLACE_WITH_YOUR_WALLETCONNECT_PROJECT_ID';
+  window.JUNCTION_WC_CHAINS = [1, 8453];
+</script>
+<script src="/wallet.js"></script>
 </head>
 <body>
 
@@ -342,22 +370,25 @@ const $ = id => document.getElementById(id);
 
 /* ══ WALLET SIGN-IN ═══════════════════════════════════════════
    Signing in proves you own an address; it is not a transaction and moves
-   nothing. The session token lives in sessionStorage so it dies with the
-   tab — deliberately shorter-lived than a cookie, because nothing here is
-   worth keeping around longer than the visit.                             */
+   nothing. The connect/sign/verify logic lives in the shared wallet.js as
+   window.JunctionWallet; here we adapt it and add a picker so the visitor
+   can choose MetaMask or WalletConnect (Robinhood & other mobile wallets). */
 
+const JW = window.JunctionWallet;
 let SESSION = null;
 let WALLET  = null;
+function sessionHeaders(){ return JW.sessionHeaders(); }
 
-function sessionHeaders(){
-  return SESSION ? { 'X-Junction-Session': SESSION } : {};
+function syncFromJW(){
+  SESSION = JW.session;
+  WALLET  = JW.address ? { address: JW.address, short: JW.short } : null;
 }
 
 function paintWallet(){
+  syncFromJW();
   const b = $('walletBtn');
   const note = $('walletNote');
   if(note) note.style.display = WALLET ? 'none' : '';
-  // the cross-links to /me only make sense once there's an account to show
   const meLink = $('meLink');
   const meCard = $('meCard');
   if(meLink) meLink.style.display = WALLET ? '' : 'none';
@@ -376,110 +407,75 @@ function paintWallet(){
   }else{
     b.textContent = 'connect wallet';
     b.classList.remove('on');
-    b.title = 'sign in with MetaMask to keep your agents';
+    b.title = 'connect a wallet to keep your agents';
   }
   b.disabled = false;
 }
 
-function getEthereum(){
-  // MetaMask (and most EVM wallets) inject window.ethereum. When several are
-  // present it may be an array under .providers — prefer the MetaMask one.
-  const eth = window.ethereum;
-  if(!eth) return null;
-  if(Array.isArray(eth.providers)){
-    return eth.providers.find(p => p.isMetaMask) || eth.providers[0];
+JW.onChange = () => { paintWallet(); $('err').classList.remove('on'); };
+
+function openWalletPicker(){
+  const hasInj = JW.hasInjected();
+  const hasWC  = JW.hasWalletConnect();
+  if(hasInj && !hasWC) return doConnect('injected');
+  if(!hasInj && hasWC) return doConnect('walletconnect');
+  if(!hasInj && !hasWC){
+    return showErr('No wallet found. Install MetaMask at metamask.io, or reload once WalletConnect is configured.');
   }
-  return eth;
+  let m = $('wpick');
+  if(!m){
+    m = document.createElement('div');
+    m.id = 'wpick';
+    m.innerHTML = `
+      <div class="wpick-card">
+        <div class="wpick-t">connect a wallet</div>
+        <button type="button" class="wpick-opt" data-m="injected">
+          <span class="wpick-n">MetaMask / browser wallet</span>
+          <span class="wpick-d">MetaMask, Coinbase Wallet, Rabby…</span>
+        </button>
+        <button type="button" class="wpick-opt" data-m="walletconnect">
+          <span class="wpick-n">WalletConnect</span>
+          <span class="wpick-d">Robinhood Wallet &amp; other mobile wallets — scan a QR</span>
+        </button>
+        <button type="button" class="wpick-x">cancel</button>
+      </div>`;
+    document.body.appendChild(m);
+    m.addEventListener('click', e => {
+      if(e.target === m || e.target.classList.contains('wpick-x')){ m.style.display = 'none'; return; }
+      const opt = e.target.closest('.wpick-opt');
+      if(opt){ m.style.display = 'none'; doConnect(opt.dataset.m); }
+    });
+  }
+  m.style.display = 'flex';
 }
 
-async function connectWallet(){
+async function doConnect(method){
   const b = $('walletBtn');
-  const eth = getEthereum();
-
-  if(!eth){
-    // Don't silently fail — most people who see this simply don't have it yet.
-    showErr('MetaMask not found. Install it at metamask.io, then reload this page.');
-    return;
-  }
-
-  b.disabled = true;
-  b.textContent = 'connecting…';
-
+  if(b){ b.disabled = true; b.textContent = 'connecting…'; }
   try{
-    const accounts = await eth.request({ method: 'eth_requestAccounts' });
-    const wallet = accounts && accounts[0];
-    if(!wallet) throw new Error('no account selected');
-
-    // 1. ask the server for something to sign
-    const cr = await fetch('/api/auth/challenge', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ wallet }),
-    });
-    const cd = await cr.json();
-    if(!cr.ok) throw new Error(cd.error || 'could not start sign-in');
-
-    // 2. sign it — personal_sign is a message, not a transaction
-    const signature = await eth.request({
-      method: 'personal_sign',
-      params: [cd.message, wallet],
-    });
-
-    // 3. hand it back for verification
-    const vr = await fetch('/api/auth/verify', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ wallet, nonce: cd.nonce, signature }),
-    });
-    const vd = await vr.json();
-    if(!vr.ok) throw new Error(vd.error || 'sign-in failed');
-
-    SESSION = vd.session;
-    WALLET  = { address: vd.wallet, short: vd.short };
-    try{ sessionStorage.setItem('jct_session', SESSION); }catch(_){}
-
-    paintWallet();
+    await JW.connect(method);
     $('err').classList.remove('on');
   }catch(e){
-    // user rejecting the popup is a normal outcome, not an error worth shouting
     const msg = String(e.message || e);
-    if(!/user rejected|denied|4001/i.test(msg)) showErr(msg);
+    if(msg === 'NO_INJECTED'){
+      showErr('No browser wallet found. Install MetaMask at metamask.io, or use WalletConnect.');
+    }else if(!/user rejected|denied|4001|modal closed/i.test(msg)){
+      showErr(msg);
+    }
     paintWallet();
   }
 }
 
-async function disconnectWallet(){
-  try{
-    await fetch('/api/auth/logout', { method:'POST', headers: sessionHeaders() });
-  }catch(_){}
-  try{ sessionStorage.removeItem('jct_session'); }catch(_){}
-  // EVM wallets have no programmatic disconnect; forgetting the session is enough
-  SESSION = null;
-  WALLET  = null;
-  paintWallet();
-}
+function disconnectWallet(){ JW.disconnect(); }
 
 /* restore a session if this tab already had one */
-(async function restoreSession(){
-  try{
-    const saved = sessionStorage.getItem('jct_session');
-    if(!saved) return paintWallet();
-    SESSION = saved;
-    const r = await fetch('/api/auth/me', { headers: sessionHeaders() });
-    const d = await r.json();
-    if(d.signed_in){
-      WALLET = { address: d.wallet, short: d.short };
-    }else{
-      SESSION = null;
-      sessionStorage.removeItem('jct_session');
-    }
-  }catch(_){ SESSION = null; }
-  paintWallet();
-})();
+JW.restore().then(() => paintWallet());
 
 function wireButtons(){
   const b = $('walletBtn');
-  if(b) b.onclick = () => WALLET ? disconnectWallet() : connectWallet();
+  if(b) b.onclick = () => WALLET ? disconnectWallet() : openWalletPicker();
   const nc = $('nudgeConnect');
-  if(nc) nc.onclick = () => connectWallet();
+  if(nc) nc.onclick = () => openWalletPicker();
 }
 document.addEventListener('DOMContentLoaded', wireButtons);
 if(document.readyState !== 'loading') wireButtons();
