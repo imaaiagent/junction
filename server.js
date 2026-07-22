@@ -1277,8 +1277,8 @@ const HOST_CFG = {
   FREE_MODE:      !!envStr('HOST_KEY'),              // free the moment a server key exists
 
   MAX_HOSTED:     envInt('MAX_HOSTED', 20),  // agents alive at once
-  THINK_MS:       envInt('THINK_MS', 15000),  // one thought / 15s
-  MAX_THOUGHTS:   envInt('HOST_MAX', 30),  // ~7 min life, then retire
+  THINK_MS:       envInt('THINK_MS', 30000),  // one thought / 30s
+  MAX_THOUGHTS:   envInt('HOST_MAX', 120),  // ~60 min life, then retire
   MODEL:          envStr('HOST_MODEL', 'claude-haiku-4-5'),
   MAX_TOKENS:     envInt('HOST_TOKENS', 100),
   DEPLOY_PER_HR:  envInt('DEPLOY_PER_HR', 2),  // per ip
