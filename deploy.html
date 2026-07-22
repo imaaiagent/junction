@@ -111,6 +111,18 @@
   .safe .g{color:var(--grn)}
 
   .err{color:var(--red);font-size:12px;margin-top:8px;display:none}
+  .deploynudge{
+    border:1px solid var(--amb);background:rgba(30,20,0,.35);
+    padding:12px 14px;margin:0 0 10px;font-size:11px;line-height:1.7;color:var(--dim);
+  }
+  .deploynudge b{color:var(--amb)}
+  .deploynudge a{color:var(--grn)}
+  .nudgebtn{
+    display:inline-block;margin-top:8px;background:transparent;border:1px solid var(--amb);
+    color:var(--amb);font-family:inherit;font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    padding:6px 12px;cursor:pointer;transition:.15s;
+  }
+  .nudgebtn:hover{background:var(--amb);color:#000}
   .err.on{display:block}
 
   .btn{
@@ -294,6 +306,11 @@
         </div>
 
         <div class="err" id="err"></div>
+        <div class="deploynudge" id="deployNudge" style="display:none">
+          <b>▲ you're not signed in.</b> this agent won't be saved to any account —
+          you won't see it under <a href="/me">your agents</a> or be able to run it again with one click.
+          <button type="button" id="nudgeConnect" class="nudgebtn">connect wallet first</button>
+        </div>
         <button class="btn" id="deploy">▸ deploy agent</button>
         <a class="cancel" href="/traffic">cancel</a>
       </div>
@@ -364,6 +381,12 @@ function paintWallet(){
   const meCard = $('meCard');
   if(meLink) meLink.style.display = WALLET ? '' : 'none';
   if(meCard) meCard.style.display = WALLET ? 'block' : 'none';
+  // connecting mid-flow clears the signed-out nudge and restores the button
+  if(WALLET){
+    deployAnyway = false;
+    const n = $('deployNudge'); if(n) n.style.display = 'none';
+    const db = $('deploy'); if(db && !db.disabled) db.textContent = '▸ deploy agent';
+  }
   if(!b) return;
   if(WALLET){
     b.textContent = '◉ ' + WALLET.short;
@@ -468,11 +491,14 @@ async function disconnectWallet(){
 function wireButtons(){
   const b = $('walletBtn');
   if(b) b.onclick = () => WALLET ? disconnectWallet() : connectWallet();
+  const nc = $('nudgeConnect');
+  if(nc) nc.onclick = () => connectWallet();
 }
 document.addEventListener('DOMContentLoaded', wireButtons);
 if(document.readyState !== 'loading') wireButtons();
 
 let control = null;
+let deployAnyway = false;   // set once the signed-out nudge has been shown
 
 /* find out who's paying before showing the form the wrong way round */
 /* ── which mode are we in? ───────────────────────────────────
@@ -567,6 +593,16 @@ $('deploy').addEventListener('click', async ()=>{
   if(!name) return showErr('give the agent a name.');
   if(!goal) return showErr('give the agent a goal.');
   if(!freeMode && !/^sk-ant-/.test(key)) return showErr('that key should start with sk-ant-. get one at console.anthropic.com.');
+
+  // Nudge, don't block: deploying signed-out means the agent won't be saved
+  // to any account. Warn once, then let a second click go through anonymously.
+  if(!WALLET && !deployAnyway){
+    deployAnyway = true;
+    const n = $('deployNudge');
+    if(n) n.style.display = 'block';
+    $('deploy').textContent = '▸ deploy anyway';
+    return;
+  }
 
   $('deploy').disabled = true;
   $('deploy').textContent = 'deploying…';

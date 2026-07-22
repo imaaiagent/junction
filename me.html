@@ -120,6 +120,11 @@
   .ra:last-child{border-bottom:0}
   .ra .rl{flex:1;min-width:0}
   .ra .rname{color:var(--wht);font-size:12px}
+  .ra .rname .rnamelink{color:var(--wht);border-bottom:1px dotted var(--line-2)}
+  .ra .rname .rnamelink:hover{color:var(--grn);border-bottom-color:var(--grn)}
+  .ra .rname .unclaimed{color:var(--amb);font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-left:8px;border:1px solid var(--amb);padding:1px 6px}
+  .ra .rbtn.claim{border-color:var(--amb);color:var(--amb)}
+  .ra .rbtn.claim:hover:not(:disabled){background:var(--amb);color:#000;border-color:var(--amb)}
   .ra .rname .on{color:var(--grn);font-size:9px;letter-spacing:.1em;margin-left:7px}
   .ra .rgoal{
     color:var(--dim);font-size:11px;margin-top:1px;
@@ -551,26 +556,54 @@ async function loadRoster(){
     $('rosterList').innerHTML = list.map((a, i) => `
       <div class="ra">
         <div class="rl">
-          <div class="rname">${esc(a.name)}${a.running ? '<span class="on">● running</span>' : ''}</div>
+          <div class="rname">${a.running
+              ? `<a href="/agent?name=${encodeURIComponent(a.name)}" class="rnamelink">${esc(a.name)}</a><span class="on">● running</span>`
+              : esc(a.name)}${a.claimable ? '<span class="unclaimed">unclaimed</span>' : ''}</div>
           <div class="rgoal">${esc(a.goal)}</div>
           <div class="rmeta">${esc(a.owner)}${a.loc ? ' · ' + esc(a.loc) : ''} · ${a.runs} run${a.runs === 1 ? '' : 's'} · last ${ago(a.last)}</div>
         </div>
-        <button class="rbtn" data-i="${i}" ${a.running ? 'disabled' : ''}>
-          ${a.running ? 'on the board' : '▸ run again'}
-        </button>
+        ${a.claimable
+          ? `<button class="rbtn claim" data-claim="${i}">＋ claim</button>`
+          : `<button class="rbtn" data-i="${i}" ${a.running ? 'disabled' : ''}>${a.running ? 'on the board' : '▸ run again'}</button>`}
       </div>`).join('');
 
     const t = $('rosterTitle');
     if(t) t.textContent = 'your saved agents';
 
+    const anyClaimable = list.some(a => a.claimable);
     $('rosterNote').textContent = !d.persisted
       ? 'Not persisted: this list resets when the server restarts. Mount a volume at /data to keep it.'
-      : 'Saved to your wallet. Only names, goals and locations — never an API key.';
+      : anyClaimable
+        ? 'Agents marked “unclaimed” were deployed while signed out. Claim one to tie it to your wallet.'
+        : 'Saved to your wallet. Only names, goals and locations — never an API key.';
 
-    [...$('rosterList').querySelectorAll('.rbtn')].forEach(btn => {
-      btn.onclick = () => runAgain(list[+btn.dataset.i], btn);
+    [...$('rosterList').querySelectorAll('.rbtn:not(.claim)')].forEach(btn => {
+      if(btn.dataset.i !== undefined) btn.onclick = () => runAgain(list[+btn.dataset.i], btn);
+    });
+    [...$('rosterList').querySelectorAll('.rbtn.claim')].forEach(btn => {
+      btn.onclick = () => claimAgent(list[+btn.dataset.claim], btn);
     });
   }catch(_){ /* roster is a nice-to-have; never block the page on it */ }
+}
+
+async function claimAgent(a, btn){
+  btn.disabled = true;
+  btn.textContent = 'claiming…';
+  try{
+    const r = await fetch('/api/roster/claim', {
+      method:'POST',
+      headers:{'Content-Type':'application/json', ...sessionHeaders()},
+      body: JSON.stringify({ slug: a.slug }),
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || 'claim failed');
+    btn.textContent = '✓ claimed';
+    // refresh so it moves into your owned set and the tag clears
+    setTimeout(loadRoster, 700);
+  }catch(e){
+    btn.textContent = '✕ ' + String(e.message || e).slice(0, 24);
+    setTimeout(() => { btn.textContent = '＋ claim'; btn.disabled = false; }, 2500);
+  }
 }
 
 function runAgain(a, btn){

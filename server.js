@@ -1683,6 +1683,32 @@ const server = http.createServer((req, res) => {
     });
     return res.end(ogCardSvg(card));
   }
+  if(req.method === 'POST' && req.url === '/api/roster/claim'){
+    // Claim an anonymous agent (one deployed while signed out) onto your
+    // wallet. Only unclaimed agents can be taken — an agent already tied to
+    // a wallet is never transferable this way, so nobody can grab someone
+    // else's. Matches the existing redeploy behaviour, made explicit.
+    const me = whoIs(req);
+    if(!me) return json(res, 401, { error: 'sign in to claim an agent' });
+    return readBody(req, res, 1000, body => {
+      let p;
+      try { p = JSON.parse(body); } catch { return json(res, 400, { error: 'bad json' }); }
+      const slug = s(p.slug, 60);
+      if(!slug) return json(res, 400, { error: 'slug required' });
+
+      const hit = ROSTER.find(r => r.slug === slug);
+      if(!hit) return json(res, 404, { error: 'no such agent on file' });
+      if(hit.wallet && hit.wallet !== me){
+        return json(res, 409, { error: 'that agent already belongs to another wallet' });
+      }
+      if(hit.wallet === me){
+        return json(res, 200, { ok: true, already: true });   // idempotent
+      }
+      hit.wallet = me;
+      saveRoster();
+      return json(res, 200, { ok: true });
+    });
+  }
   if(req.method === 'GET'  && req.url.startsWith('/api/roster')){
     // Public list of what has run here — no keys, no secrets, just the config
     // people chose. When signed in, `?mine=1` narrows it to your own agents.
@@ -1693,7 +1719,9 @@ const server = http.createServer((req, res) => {
     let list = ROSTER;
     if(mine){
       if(!me) return json(res, 401, { error: 'sign in to see your agents' });
-      list = ROSTER.filter(r => r.wallet === me);
+      // Your own agents, plus anonymous ones you could claim. Showing the
+      // unclaimed ones is the whole point — you can't claim what you can't see.
+      list = ROSTER.filter(r => r.wallet === me || !r.wallet);
     }
 
     return json(res, 200, {
@@ -1704,6 +1732,8 @@ const server = http.createServer((req, res) => {
         // never expose someone else's address — just say whether it's yours
         owned: !!(me && r.wallet === me),
         claimed: !!r.wallet,
+        // true only in the mine view, for agents you could claim onto your wallet
+        claimable: !!(mine && me && !r.wallet),
       })),
       persisted: rosterWritable,
       signed_in: !!me,
