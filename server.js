@@ -1163,22 +1163,47 @@ function saveRoster(){
 }
 
 function slugify(name, owner){
-  return (owner + '/' + name).toLowerCase().replace(/[^a-z0-9/_-]+/g, '-').slice(0, 60);
+  return (owner + '/' + name).toLowerCase().replace(/[^a-z0-9/_-]+/g, '-').slice(0, 50);
 }
 
-/* Record a deployment. Same name+owner = same entry, run count goes up. */
+/* A short, stable, non-reversible tag for a wallet — so the slug can be
+   scoped to an owner without putting a full address in a URL. */
+function walletTag(wallet){
+  if(!wallet) return 'anon';
+  let h = 0;
+  for(let i = 0; i < wallet.length; i++){ h = (h * 31 + wallet.charCodeAt(i)) >>> 0; }
+  return 'w' + h.toString(36);
+}
+
+/* Record a deployment.
+
+   Ownership belongs to the WALLET, never to the name. Two people can both
+   deploy an agent called "0xJ" and they are simply two different agents —
+   the slug is scoped by wallet, so one can never land on, overwrite, or
+   inherit the other. An agent deployed while signed out is anonymous and
+   stays that way until its owner explicitly claims it from /me; a later
+   redeploy — by anyone — must NOT silently take it over. Same wallet +
+   same name = the same agent, and only then does the run count tick up. */
 function rosterRecord(name, owner, goal, loc, wallet){
-  const slug = slugify(name, owner);
+  const base = slugify(name, owner);
+  // scope the identity to the wallet (or to "anon" + a random tail for
+  // signed-out deploys, so each anonymous run is its own entity and can't
+  // be matched by a stranger deploying the same name)
+  const slug = wallet
+    ? base + '#' + walletTag(wallet)
+    : base + '#anon-' + Math.random().toString(36).slice(2, 8);
   const now  = Date.now();
-  const hit  = ROSTER.find(r => r.slug === slug);
+
+  // Only ever match within the same owner: a signed-in user matches their
+  // own prior deploy; we never match across wallets, and never re-match an
+  // anonymous entry (its slug is unique per run by construction).
+  const hit = wallet ? ROSTER.find(r => r.slug === slug && r.wallet === wallet) : null;
 
   if(hit){
     hit.goal = goal;       // they may have changed what it's for
     hit.loc  = loc || '';
     hit.last = now;
     hit.runs = (hit.runs || 1) + 1;
-    // claim it if it was anonymous and someone signed-in just redeployed it
-    if(wallet && !hit.wallet) hit.wallet = wallet;
   } else {
     ROSTER.unshift({ slug, name, owner, goal, loc: loc || '',
                      wallet: wallet || '', first: now, last: now, runs: 1 });
