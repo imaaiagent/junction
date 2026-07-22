@@ -70,14 +70,16 @@
   #bootlog .ok{color:var(--grn)}
   #bootlog .w{color:var(--wht)}
   #bootbanner{
-    font-family:var(--fa);white-space:pre;color:var(--grn);
-    font-size:clamp(6px,1.5vw,13px);line-height:1.15;font-weight:700;
-    margin:26px 0 14px;opacity:0;
-    text-shadow:0 0 12px rgba(106,255,106,.5);
+    font-family:var(--f);white-space:nowrap;color:var(--wht);
+    font-size:clamp(28px,7vw,56px);font-weight:700;letter-spacing:.24em;
+    margin:32px 0 14px;opacity:0;
+    text-shadow:0 0 28px rgba(106,255,106,.55),0 0 6px rgba(106,255,106,.9);
   }
-  #bootbanner.on{animation:bIn .5s steps(3) forwards}
-  @keyframes bIn{to{opacity:1}}
-  #boot.gone{opacity:0;visibility:hidden;transition:opacity .5s,visibility .5s}
+  #bootbanner .bcur{color:var(--grn);animation:bcur 1s steps(1) infinite;margin-left:.05em}
+  @keyframes bcur{50%{opacity:0}}
+  #bootbanner.on{animation:bIn .28s ease-out forwards}
+  @keyframes bIn{from{opacity:0;letter-spacing:.5em;filter:blur(6px)}to{opacity:1;letter-spacing:.24em;filter:blur(0)}}
+  #boot.gone{opacity:0;visibility:hidden;transition:opacity .3s,visibility .3s}
 
   /* ══ LAYOUT ═════════════════════════════════════════════ */
   #os{display:none;height:100vh;flex-direction:column}
@@ -400,12 +402,7 @@
 <!-- ══ BOOT ══════════════════════════════════════════════ -->
 <div id="boot">
   <div id="bootlog"></div>
-  <pre id="bootbanner">    ││ ││  ││ ││  ││  ││││  ││││││ ││││││  ││││  ││  ││
-    ││ ││  ││ │││ ││ ││  ││   ││     ││   ││  ││ │││ ││
-    ││ ││  ││ ││││││ ││       ││     ││   ││  ││ ││││││
-││  ││ ││  ││ ││ │││ ││  ││   ││     ││   ││  ││ ││ │││
- ││││   ││││  ││  ││  ││││    ││   ││││││  ││││  ││  ││
-▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁ ▁▁▁▁▁▁</pre>
+  <div id="bootbanner">JUNCTION<span class="bcur">_</span></div>
 </div>
 
 <!-- ══ OS ════════════════════════════════════════════════ -->
@@ -531,13 +528,13 @@ const clamp= (v,a,b) => Math.max(a, Math.min(b, v));
 
 /* ── boot ──────────────────────────────────────────────── */
 const BOOT = [
-  ["Initializing Kernel", 90],
-  ["Loading Intelligence Core", 130],
-  ["Connecting Distributed Nodes", 110],
-  ["Synchronizing Global Registry", 150],
-  ["Loading Memory Archive", 100],
-  ["Loading World State", 120],
-  ["Establishing Secure Channel", 140],
+  ["Initializing Kernel", 18],
+  ["Loading Intelligence Core", 26],
+  ["Connecting Distributed Nodes", 22],
+  ["Synchronizing Global Registry", 30],
+  ["Loading Memory Archive", 20],
+  ["Loading World State", 24],
+  ["Establishing Secure Channel", 28],
 ];
 
 async function boot(){
@@ -554,19 +551,19 @@ async function boot(){
     ok.textContent = 'OK';
     line.appendChild(ok);
   }
-  await sleep(160);
+  await sleep(40);
 
   const rdy = document.createElement('div');
   rdy.innerHTML = '<span class="w">READY</span>';
   rdy.style.marginTop = '10px';
   log.appendChild(rdy);
 
-  await sleep(320);
+  await sleep(80);
   $('bootbanner').classList.add('on');
-  await sleep(900);
+  await sleep(340);
 
   $('boot').classList.add('gone');
-  setTimeout(()=>$('boot').remove(), 600);
+  setTimeout(()=>$('boot').remove(), 300);
   $('os').classList.add('on');
   $('ti').focus();
   start();
