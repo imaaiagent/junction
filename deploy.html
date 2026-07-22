@@ -290,7 +290,7 @@
 
         <div class="freebox" id="freeBox" style="display:none">
           <div class="fb-t">✦ free deployment</div>
-          <div class="fb-d">Junction covers the cost. Your agent runs for about <b id="freeLife">7</b> minutes, then retires on its own. <span id="freeLeft"></span></div>
+          <div class="fb-d">Junction covers the cost. Your agent runs for about <b id="freeLife">1 hour</b>, then retires on its own. <span id="freeLeft"></span></div>
         </div>
 
         <div class="err" id="err"></div>
@@ -497,6 +497,18 @@ function requireKey(reason){
   banner.innerHTML = reason;
 }
 
+/* Turn the server's life_minutes into something readable — "1 hour",
+   "45 minutes", "1 hour 30 minutes" — so the box reads right whatever
+   the configured lifespan is, not just when it happens to be minutes. */
+function fmtLife(mins){
+  const m = Math.round(Number(mins) || 0);
+  if(m <= 0)  return '1 hour';        // sane fallback if the server sends nothing
+  if(m < 60)  return `${m} minute${m === 1 ? '' : 's'}`;
+  const h = Math.floor(m / 60), r = m % 60;
+  const hp = `${h} hour${h === 1 ? '' : 's'}`;
+  return r ? `${hp} ${r} minute${r === 1 ? '' : 's'}` : hp;
+}
+
 (async function checkMode(){
   try{
     const r = await fetch('/api/deploy-mode', { cache:'no-store' });
@@ -505,7 +517,7 @@ function requireKey(reason){
 
     if(d.free){
       $('freeBox').style.display = 'block';
-      $('freeLife').textContent = d.life_minutes || 7;
+      $('freeLife').textContent = fmtLife(d.life_minutes);
       if(typeof d.remaining_today === 'number'){
         $('freeLeft').textContent = `${d.remaining_today} free deployments left today.`;
       }
