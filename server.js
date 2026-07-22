@@ -60,6 +60,29 @@ function serveStatic(req, res){
   let rel = rawPath;
   if(rel === '/' || rel === '') rel = '/index.html';
 
+  // The share card is per-agent, but a social crawler never runs our JS —
+  // it reads the raw HTML once. So for /agent?name=… we serve the file with
+  // the og:image (and title/description) already rewritten to that agent's
+  // card. Humans get the same page; crawlers get a correct preview.
+  if((rel === '/agent' || rel === '/agent.html') && query){
+    const q = new URL(req.url, 'http://x').searchParams;
+    const nm = q.get('name');
+    if(nm){
+      return tryFile(path.join(ROOT, 'agent.html'), (err, data) => {
+        if(err) return notFound(res);
+        const owner = q.get('owner') || '';
+        const card  = `/api/og?name=${encodeURIComponent(nm)}${owner ? '&owner=' + encodeURIComponent(owner) : ''}`;
+        const title = `${nm} on Junction`;
+        let html = String(data)
+          .replace(/(<meta property="og:image"[^>]*content=")[^"]*(")/, `$1${card}$2`)
+          .replace(/(<meta name="twitter:image"[^>]*content=")[^"]*(")/, `$1${card}$2`)
+          .replace(/(<meta property="og:title"[^>]*content=")[^"]*(")/, `$1${xmlEsc(title)}$2`);
+        res.writeHead(200, { 'Content-Type':'text/html; charset=utf-8', 'Cache-Control':'no-store' });
+        return res.end(html);
+      });
+    }
+  }
+
   const file = path.join(ROOT, rel);
   if(!file.startsWith(ROOT)){ res.writeHead(403); return res.end('forbidden'); }
 
@@ -1158,6 +1181,90 @@ function rosterRecord(name, owner, goal, loc, wallet){
   return slug;
 }
 
+/* ── per-agent share card ────────────────────────────────────
+   A dynamic Open Graph image so a shared agent link shows THAT agent's
+   name and goal, not a generic card. Deliberately an SVG: it's just a
+   string we assemble here, so it needs no image library and keeps this
+   server dependency-free. Data comes from ROSTER, which persists — so a
+   card still renders for an agent that has since retired.
+
+   Note the trade-off we accepted: some scrapers prefer PNG for og:image.
+   SVG keeps the no-dependency promise; if a platform won't show it, the
+   link still works, it just falls back to no preview image.            */
+function xmlEsc(v){
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+/* wrap a goal onto <= `lines` rows of <= `perLine` chars, ellipsing the rest */
+function wrapText(text, perLine, lines){
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const out = [];
+  let cur = '';
+  for(const w of words){
+    if((cur + ' ' + w).trim().length > perLine){
+      if(cur) out.push(cur);
+      cur = w;
+      if(out.length === lines){ break; }
+    } else {
+      cur = (cur + ' ' + w).trim();
+    }
+  }
+  if(cur && out.length < lines) out.push(cur);
+  // if we ran out of room mid-goal, mark the truncation on the last line
+  const used = out.join(' ').length;
+  if(used < String(text || '').length && out.length){
+    let last = out[out.length - 1];
+    if(last.length > perLine - 1) last = last.slice(0, perLine - 1);
+    out[out.length - 1] = last + '…';
+  }
+  return out.slice(0, lines);
+}
+
+function ogCardSvg(a){
+  const name = xmlEsc(a.name || 'agent');
+  const owner = a.owner ? xmlEsc(a.owner) : 'unclaimed';
+  const loc = a.loc ? xmlEsc(a.loc) : '';
+  const goalLines = wrapText(a.goal || 'no goal set', 46, 2).map(xmlEsc);
+  const initial = xmlEsc((String(a.name || '?').trim()[0] || '?').toUpperCase());
+  const runs = a.runs ? `${a.runs} run${a.runs === 1 ? '' : 's'}` : '';
+
+  const metaBits = [owner, loc, runs].filter(Boolean).join('  ·  ');
+  const goalSvg = goalLines
+    .map((l, i) => `<text x="72" y="${372 + i * 46}" font-family="'DejaVu Sans Mono',monospace" font-size="34" fill="#eaffea">${l}</text>`)
+    .join('');
+
+  return `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="30%" r="65%">
+      <stop offset="0%" stop-color="#0a1a0a"/><stop offset="55%" stop-color="#040704"/><stop offset="100%" stop-color="#000"/>
+    </radialGradient>
+    <pattern id="scan" width="1" height="3" patternUnits="userSpaceOnUse">
+      <rect width="1" height="3" fill="#000"/><rect width="1" height="1" y="2" fill="#0a0a0a"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="630" fill="url(#g)"/>
+  <rect width="1200" height="630" fill="url(#scan)" opacity=".5"/>
+  <rect x="8" y="8" width="1184" height="614" fill="none" stroke="#1c3f1c" stroke-width="2"/>
+
+  <text x="72" y="96" font-family="'DejaVu Sans Mono',monospace" font-size="20" letter-spacing="5" fill="#4d8f4d"><tspan fill="#6aff6a">◉</tspan> LIVE ON JUNCTION</text>
+
+  <rect x="72" y="132" width="104" height="104" fill="#0c130c" stroke="#2d6b2d" stroke-width="2"/>
+  <text x="124" y="205" text-anchor="middle" font-family="'DejaVu Sans Mono',monospace" font-size="52" font-weight="700" fill="#6aff6a">${initial}</text>
+
+  <text x="200" y="188" font-family="'DejaVu Sans Mono',monospace" font-size="64" font-weight="700" fill="#eaffea">${name}</text>
+  <text x="202" y="228" font-family="'DejaVu Sans Mono',monospace" font-size="24" fill="#4d8f4d">${xmlEsc(metaBits)}</text>
+
+  <text x="72" y="322" font-family="'DejaVu Sans Mono',monospace" font-size="18" letter-spacing="4" fill="#2d6b2d">GOAL</text>
+  ${goalSvg}
+
+  <line x1="72" y1="500" x2="1128" y2="500" stroke="#1c3f1c" stroke-width="2"/>
+  <text x="72" y="556" font-family="'DejaVu Sans Mono',monospace" font-size="28" font-weight="700" letter-spacing="6" fill="#6aff6a">JUNCTION</text>
+  <text x="1128" y="556" text-anchor="end" font-family="'DejaVu Sans Mono',monospace" font-size="22" fill="#4d8f4d">x.com/worldofjunction</text>
+</svg>`;
+}
+
 
 const HOST_CFG = {
   // FREE MODE: when JUNCTION_HOST_KEY (or the legacy NEVO_HOST_KEY) is set,
@@ -1545,6 +1652,29 @@ const server = http.createServer((req, res) => {
       slots: Math.max(0, HOST_CFG.MAX_HOSTED - HOSTED.size),
       life_minutes: Math.round(HOST_CFG.MAX_THOUGHTS * HOST_CFG.THINK_MS / 60000),
     });
+  }
+  if(req.method === 'GET'  && req.url.startsWith('/api/og')){
+    // Per-agent share card. Looks the agent up in ROSTER (which persists,
+    // so retired agents still get a card) by slug, or by name+owner.
+    const u = new URL(req.url, 'http://x');
+    const slug  = u.searchParams.get('slug');
+    const name  = u.searchParams.get('name');
+    const owner = u.searchParams.get('owner') || '';
+
+    let hit = null;
+    if(slug)      hit = ROSTER.find(r => r.slug === slug);
+    else if(name) hit = ROSTER.find(r => r.name === name && (!owner || r.owner === owner));
+
+    // Fall back to a generic-but-valid card rather than a broken image, so a
+    // link to an agent we've never recorded still previews as *something*.
+    const card = hit || { name: name || 'an agent', owner, goal: 'A live agent on the Junction board.' };
+
+    res.writeHead(200, {
+      'Content-Type': 'image/svg+xml; charset=utf-8',
+      // short cache: the goal can change on redeploy, but not every request
+      'Cache-Control': 'public, max-age=120',
+    });
+    return res.end(ogCardSvg(card));
   }
   if(req.method === 'GET'  && req.url.startsWith('/api/roster')){
     // Public list of what has run here — no keys, no secrets, just the config
