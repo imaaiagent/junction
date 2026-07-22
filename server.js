@@ -161,6 +161,10 @@ function json(res, code, obj){
 ============================================================ */
 
 const crypto = require('crypto');
+// viem: the ONLY dependency. Used exclusively to verify EVM wallet signatures
+// (secp256k1 address recovery) and validate addresses — the one place where
+// hand-rolled crypto would be reckless. Everything else stays built-in.
+const { verifyMessage, isAddress, getAddress } = require('viem');
 
 const REG = {
   agents: new Map(),   // key -> agent record
@@ -525,13 +529,15 @@ function cors(res){
 
    Nothing secret is ever stored here. There is no password, no email, no
    OAuth token — the visitor proves who they are by signing a one-off random
-   message with their wallet, and the server checks the signature against
-   their public key. If this server is breached tomorrow, the attacker gets
-   a list of public addresses, which are public by definition.
+   message with their wallet (MetaMask / any EVM wallet), and the server
+   recovers the signer address from the signature. If this server is breached
+   tomorrow, the attacker gets a list of public 0x addresses, which are
+   public by definition.
 
-   Ed25519 verification is built into Node, so this adds no dependency. The
-   base58 decoder below is ~25 lines for the same reason: a wallet login is
-   exactly the wrong place to be pulling in code we haven't read.
+   EVM signature verification (secp256k1 recovery + keccak256) is the one
+   thing we do NOT hand-roll — Node's crypto can't recover an address from a
+   signature and has no keccak256. viem does it correctly and is the sole
+   dependency. A wallet login is exactly the wrong place to invent crypto.
 
    IMPORTANT: this asks for a SIGNATURE, never a transaction. It cannot move
    funds and costs no gas. The deploy page says so in plain words, because
@@ -539,44 +545,10 @@ function cors(res){
    people are right to hesitate.
 ============================================================ */
 
-const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const B58_MAP = {};
-for(let i = 0; i < B58_ALPHABET.length; i++) B58_MAP[B58_ALPHABET[i]] = i;
-
-function b58decode(str){
-  // 64-byte signatures encode to ~88 base58 chars, so the cap has to clear
-  // that — but still stop anyone posting a megabyte of digits at us.
-  if(typeof str !== 'string' || !str.length || str.length > 128) return null;
-
-  let zeros = 0;
-  while(zeros < str.length && str[zeros] === '1') zeros++;
-
-  const bytes = [];
-  for(let k = zeros; k < str.length; k++){
-    const v = B58_MAP[str[k]];
-    if(v === undefined) return null;
-    let carry = v;
-    for(let i = 0; i < bytes.length; i++){
-      carry += bytes[i] * 58;
-      bytes[i] = carry & 0xff;
-      carry >>= 8;
-    }
-    while(carry){ bytes.push(carry & 0xff); carry >>= 8; }
-  }
-  bytes.reverse();
-  return Buffer.concat([Buffer.alloc(zeros), Buffer.from(bytes)]);
-}
-
-/* A raw 32-byte Ed25519 key has to be wrapped in DER before Node will take it. */
-const ED_DER_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-
-function verifySignature(message, signature, pubkeyRaw){
-  try{
-    if(pubkeyRaw.length !== 32 || signature.length !== 64) return false;
-    const der = Buffer.concat([ED_DER_PREFIX, pubkeyRaw]);
-    const key = crypto.createPublicKey({ key: der, format: 'der', type: 'spki' });
-    return crypto.verify(null, message, key, signature);
-  }catch(e){ return false; }
+// Normalise an address to its checksummed form, or null if it isn't one.
+function normAddress(a){
+  try{ return (typeof a === 'string' && isAddress(a)) ? getAddress(a) : null; }
+  catch{ return null; }
 }
 
 /* ── challenges and sessions ──────────────────────────────────
@@ -632,11 +604,15 @@ function whoIs(req){
 ============================================================ */
 
 const PAY_CFG = {
-  TREASURY:  envStr('TREASURY_WALLET', ''),
-  RPC:       envStr('SOLANA_RPC', 'https://api.mainnet-beta.solana.com'),
-  // How many USD one SOL is worth. Set it in Railway and keep it roughly
+  TREASURY:  normAddress(envStr('TREASURY_WALLET', '')) || '',
+  RPC:       envStr('EVM_RPC', 'https://ethereum-rpc.publicnode.com'),
+  // How many USD one ETH is worth. Set it in Railway and keep it roughly
   // current — a stale rate here means under- or over-charging.
-  SOL_USD:   parseFloat(envStr('SOL_USD', '0')) || 0,
+  ETH_USD:   parseFloat(envStr('ETH_USD', '0')) || 0,
+  // Which chain the treasury lives on, so the UI can tell the wallet to
+  // switch to it. Default: Ethereum mainnet (0x1). For cheaper fees you can
+  // point this and EVM_RPC at an L2 (e.g. Base = 8453 / 0x2105).
+  CHAIN_ID:  parseInt(envStr('EVM_CHAIN_ID', '1'), 10) || 1,
   MIN_CONF:  'confirmed',
 };
 
@@ -675,21 +651,16 @@ async function rpc(method, params){
   return j.result;
 }
 
-/* Read how many lamports actually landed in the treasury in this
-   transaction, by diffing pre/post balances. This is deliberately not the
-   amount the client claimed. */
-function lamportsToTreasury(tx, treasury){
-  const keys = tx?.transaction?.message?.accountKeys || [];
-  const pre  = tx?.meta?.preBalances  || [];
-  const post = tx?.meta?.postBalances || [];
-
-  for(let i = 0; i < keys.length; i++){
-    const k = typeof keys[i] === 'string' ? keys[i] : keys[i]?.pubkey;
-    if(k === treasury){
-      return (post[i] || 0) - (pre[i] || 0);
-    }
-  }
-  return 0;
+/* How much ETH (in wei) this transaction paid the treasury. A plain ETH
+   transfer carries its amount in the tx `value` field and its destination
+   in `to`; we trust the chain's own record, never the amount the client
+   claimed. Returns a BigInt of wei, or 0n if it didn't pay the treasury. */
+function weiToTreasury(tx, treasury){
+  if(!tx || !tx.to) return 0n;
+  let to;
+  try{ to = getAddress(tx.to); }catch{ return 0n; }
+  if(to !== treasury) return 0n;
+  try{ return BigInt(tx.value || '0x0'); }catch{ return 0n; }
 }
 
 function handleTopup(req, res, wallet){
@@ -700,33 +671,43 @@ function handleTopup(req, res, wallet){
     if(!PAY_CFG.TREASURY){
       return json(res, 503, { error: 'payments are not configured on this server' });
     }
-    if(!PAY_CFG.SOL_USD){
-      return json(res, 503, { error: 'no SOL price configured — cannot value the payment' });
+    if(!PAY_CFG.ETH_USD){
+      return json(res, 503, { error: 'no ETH price configured — cannot value the payment' });
     }
 
-    const sig = s(p.signature, 128);
-    if(!sig) return json(res, 400, { error: 'transaction signature required' });
+    // an EVM tx hash is 0x + 64 hex chars
+    const sig = s(p.hash || p.signature, 80);
+    if(!/^0x[0-9a-fA-F]{64}$/.test(sig)){
+      return json(res, 400, { error: 'a transaction hash is required' });
+    }
 
     if(SEEN_TX.has(sig)){
       return json(res, 409, { error: 'that transaction has already been redeemed' });
     }
 
     try{
-      const tx = await rpc('getTransaction', [sig, {
-        commitment: PAY_CFG.MIN_CONF,
-        maxSupportedTransactionVersion: 0,
-      }]);
+      // 1) the transaction itself — carries `to` and `value`
+      const tx = await rpc('eth_getTransactionByHash', [sig]);
+      if(!tx) return json(res, 404, { error: 'transaction not found yet — wait a few seconds and retry' });
 
-      if(!tx)            return json(res, 404, { error: 'transaction not found yet — wait a few seconds and retry' });
-      if(tx.meta?.err)   return json(res, 400, { error: 'that transaction failed on-chain' });
+      // 2) the receipt — tells us it actually succeeded and was mined
+      const rc = await rpc('eth_getTransactionReceipt', [sig]);
+      if(!rc || rc.blockNumber == null){
+        return json(res, 404, { error: 'transaction not confirmed yet — wait a few seconds and retry' });
+      }
+      if(rc.status !== '0x1'){
+        return json(res, 400, { error: 'that transaction failed on-chain' });
+      }
 
-      const lamports = lamportsToTreasury(tx, PAY_CFG.TREASURY);
-      const sol = lamports / 1e9;
-      const usd = sol * PAY_CFG.SOL_USD;
-
-      if(lamports <= 0){
+      const wei = weiToTreasury(tx, PAY_CFG.TREASURY);
+      if(wei <= 0n){
         return json(res, 400, { error: 'that transaction did not pay the treasury wallet' });
       }
+
+      // wei -> ETH -> USD, in floating point only for the final comparison
+      const eth = Number(wei) / 1e18;
+      const usd = eth * PAY_CFG.ETH_USD;
+
       // small tolerance for price drift between quote and confirmation
       if(usd < PRICE_USD * 0.97){
         return json(res, 400, {
@@ -769,7 +750,7 @@ function handleTopup(req, res, wallet){
    surface 404s rather than falling open.
 ============================================================ */
 
-const ADMIN_WALLET = envStr('ADMIN_WALLET', '');
+const ADMIN_WALLET = normAddress(envStr('ADMIN_WALLET', '')) || '';
 
 function isAdmin(req){
   if(!ADMIN_WALLET) return false;
@@ -886,10 +867,9 @@ function handleChallenge(req, res){
     let p;
     try { p = JSON.parse(body); } catch { return json(res, 400, { error: 'bad json' }); }
 
-    const wallet = s(p.wallet, 48);
-    const raw = b58decode(wallet);
-    if(!raw || raw.length !== 32){
-      return json(res, 400, { error: 'that does not look like a Solana address' });
+    const wallet = normAddress(s(p.wallet, 48));
+    if(!wallet){
+      return json(res, 400, { error: 'that does not look like an Ethereum address' });
     }
 
     const nonce = crypto.randomBytes(16).toString('hex');
@@ -909,7 +889,7 @@ function handleChallenge(req, res){
 
 /* ── POST /api/auth/verify ───────────────────────────────────── */
 function handleVerify(req, res){
-  readBody(req, res, 3000, body => {
+  readBody(req, res, 3000, async body => {
     let p;
     try { p = JSON.parse(body); } catch { return json(res, 400, { error: 'bad json' }); }
 
@@ -919,12 +899,13 @@ function handleVerify(req, res){
     CHALLENGES.delete(nonce);                 // single use, always
     if(ch.exp < Date.now()) return json(res, 400, { error: 'challenge expired — start again' });
 
-    const wallet = s(p.wallet, 48);
+    const wallet = normAddress(s(p.wallet, 48));
+    if(!wallet)              return json(res, 400, { error: 'malformed address' });
     if(wallet !== ch.wallet) return json(res, 400, { error: 'wallet does not match the challenge' });
 
-    const pub = b58decode(wallet);
-    const sig = b58decode(s(p.signature, 128));
-    if(!pub || !sig) return json(res, 400, { error: 'malformed signature' });
+    // an EVM signature is 0x + 130 hex chars (65 bytes). Keep the cap sane.
+    const sig = s(p.signature, 200);
+    if(!/^0x[0-9a-fA-F]{130}$/.test(sig)) return json(res, 400, { error: 'malformed signature' });
 
     const message =
       `Sign in to Junction\n\n` +
@@ -933,9 +914,14 @@ function handleVerify(req, res){
       `Wallet: ${wallet}\n` +
       `Nonce: ${nonce}`;
 
-    if(!verifySignature(Buffer.from(message, 'utf8'), sig, pub)){
-      return json(res, 401, { error: 'signature did not verify' });
+    // viem recovers the signer from the signature and checks it matches.
+    let ok = false;
+    try{
+      ok = await verifyMessage({ address: wallet, message, signature: sig });
+    }catch(e){
+      return json(res, 400, { error: 'could not verify signature' });
     }
+    if(!ok) return json(res, 401, { error: 'signature did not verify' });
 
     if(SESSIONS.size >= AUTH_CFG.MAX_SESSIONS) sweepAuth();
     const token = crypto.randomBytes(32).toString('hex');
@@ -1627,13 +1613,15 @@ const server = http.createServer((req, res) => {
     // people should be able to see the price before signing in.
     const perHour = costOfThought(HOST_CFG.MAX_TOKENS) * (3600000 / HOST_CFG.THINK_MS);
     return json(res, 200, {
-      enabled:    !!(PAY_CFG.TREASURY && PAY_CFG.SOL_USD && creditWritable),
+      enabled:    !!(PAY_CFG.TREASURY && PAY_CFG.ETH_USD && creditWritable),
       treasury:   PAY_CFG.TREASURY || '',
       price_usd:  PRICE_USD,
       credit_usd: CREDIT_USD,
-      sol_usd:    PAY_CFG.SOL_USD,
+      eth_usd:    PAY_CFG.ETH_USD,
       rpc:        PAY_CFG.RPC,
-      price_sol:  PAY_CFG.SOL_USD ? +(PRICE_USD / PAY_CFG.SOL_USD).toFixed(4) : 0,
+      chain_id:   PAY_CFG.CHAIN_ID,
+      // how much ETH the top-up costs, to 6 dp (enough for mainnet amounts)
+      price_eth:  PAY_CFG.ETH_USD ? +(PRICE_USD / PAY_CFG.ETH_USD).toFixed(6) : 0,
       cost_per_hour: +perHour.toFixed(4),
       hours_per_topup: perHour > 0 ? Math.round(CREDIT_USD / perHour) : 0,
       free_hour_ms: FREE_HOUR_MS,
@@ -1784,12 +1772,12 @@ server.listen(PORT, '0.0.0.0', () => {
                : null;
   console.log(`  hosted:   ${HOST_CFG.FREE_MODE ? 'FREE MODE (server pays) - ' + HOST_CFG.GLOBAL_PER_DAY + '/day, ' + HOST_CFG.MAX_THOUGHTS + ' thoughts each' : 'BYOK (visitor pays)'}`);
   console.log(`            key from: ${keyVar || 'nothing set — visitors must bring their own'}`);
-  const payOn = PAY_CFG.TREASURY && PAY_CFG.SOL_USD && creditWritable;
-  console.log(`  payments: ${payOn ? 'ON — $' + PRICE_USD + ' → $' + CREDIT_USD + ' credit' : 'OFF'}`);
+  const payOn = PAY_CFG.TREASURY && PAY_CFG.ETH_USD && creditWritable;
+  console.log(`  payments: ${payOn ? 'ON — $' + PRICE_USD + ' → $' + CREDIT_USD + ' credit (EVM chain ' + PAY_CFG.CHAIN_ID + ')' : 'OFF'}`);
   console.log(`  admin:    ${ADMIN_WALLET ? shortWallet(ADMIN_WALLET) : 'OFF — set ADMIN_WALLET to enable /admin'}`);
   if(!payOn){
     if(!PAY_CFG.TREASURY)  console.log(`            TREASURY_WALLET not set`);
-    if(!PAY_CFG.SOL_USD)   console.log(`            SOL_USD not set`);
+    if(!PAY_CFG.ETH_USD)   console.log(`            ETH_USD not set`);
     if(!creditWritable)    console.log(`            no writable volume`);
   }
 });

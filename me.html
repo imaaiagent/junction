@@ -163,7 +163,7 @@
   <div class="signin" id="signin">
     <div class="st">▸ connect a wallet to see your agents.</div>
     <div class="sd">
-      Sign in with Phantom and everything you deploy is saved to your address —
+      Sign in with MetaMask and everything you deploy is saved to your address —
       your roster and your credit balance, ready whenever you come back.
     </div>
     <button type="button" class="sbtn" id="signinBtn">connect wallet</button>
@@ -215,26 +215,7 @@ const $ = id => document.getElementById(id);
    Signing in proves you own an address; it is not a transaction and moves
    nothing. The session token lives in sessionStorage so it dies with the
    tab — deliberately shorter-lived than a cookie, because nothing here is
-   worth keeping around longer than the visit.
-
-   base58 is needed on this side too, to encode the signature Phantom hands
-   back as raw bytes.                                                       */
-const B58A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-function b58encode(bytes){
-  let zeros = 0;
-  while(zeros < bytes.length && bytes[zeros] === 0) zeros++;
-  const digits = [0];
-  for(let i = zeros; i < bytes.length; i++){
-    let carry = bytes[i];
-    for(let j = 0; j < digits.length; j++){
-      carry += digits[j] << 8;
-      digits[j] = carry % 58;
-      carry = (carry / 58) | 0;
-    }
-    while(carry){ digits.push(carry % 58); carry = (carry / 58) | 0; }
-  }
-  return '1'.repeat(zeros) + digits.reverse().map(d => B58A[d]).join('');
-}
+   worth keeping around longer than the visit. */
 
 let SESSION = null;
 let WALLET  = null;
@@ -253,7 +234,7 @@ function paintWallet(){
     }else{
       b.textContent = 'connect wallet';
       b.classList.remove('on');
-      b.title = 'sign in with Phantom to keep your agents';
+      b.title = 'sign in with MetaMask to keep your agents';
     }
     b.disabled = false;
   }
@@ -262,20 +243,25 @@ function paintWallet(){
   $('signed').classList.toggle('on', !!WALLET);
 }
 
-function getPhantom(){
-  // Phantom injects at window.phantom.solana; older builds used window.solana
-  const p = window.phantom?.solana || window.solana;
-  return (p && p.isPhantom) ? p : null;
+function getEthereum(){
+  // MetaMask (and most EVM wallets) inject window.ethereum. When several are
+  // present it may be an array under .providers — prefer the MetaMask one.
+  const eth = window.ethereum;
+  if(!eth) return null;
+  if(Array.isArray(eth.providers)){
+    return eth.providers.find(p => p.isMetaMask) || eth.providers[0];
+  }
+  return eth;
 }
 
 async function connectWallet(){
   const b = $('walletBtn');
   const sb = $('signinBtn');
-  const phantom = getPhantom();
+  const eth = getEthereum();
 
-  if(!phantom){
+  if(!eth){
     // Don't silently fail — most people who see this simply don't have it yet.
-    showErr('Phantom wallet not found. Install it at phantom.app, then reload this page.');
+    showErr('MetaMask not found. Install it at metamask.io, then reload this page.');
     return;
   }
 
@@ -283,8 +269,10 @@ async function connectWallet(){
   if(sb){ sb.disabled = true; sb.textContent = 'connecting…'; }
 
   try{
-    const resp   = await phantom.connect();
-    const wallet = resp.publicKey.toString();
+    // ask the wallet which account to use
+    const accounts = await eth.request({ method: 'eth_requestAccounts' });
+    const wallet = accounts && accounts[0];
+    if(!wallet) throw new Error('no account selected');
 
     // 1. ask the server for something to sign
     const cr = await fetch('/api/auth/challenge', {
@@ -294,16 +282,16 @@ async function connectWallet(){
     const cd = await cr.json();
     if(!cr.ok) throw new Error(cd.error || 'could not start sign-in');
 
-    // 2. sign it — this is a message, not a transaction
-    const encoded = new TextEncoder().encode(cd.message);
-    const signed  = await phantom.signMessage(encoded, 'utf8');
+    // 2. sign it — personal_sign is a message, not a transaction
+    const signature = await eth.request({
+      method: 'personal_sign',
+      params: [cd.message, wallet],
+    });
 
     // 3. hand it back for verification
     const vr = await fetch('/api/auth/verify', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        wallet, nonce: cd.nonce, signature: b58encode(signed.signature),
-      }),
+      body: JSON.stringify({ wallet, nonce: cd.nonce, signature }),
     });
     const vd = await vr.json();
     if(!vr.ok) throw new Error(vd.error || 'sign-in failed');
@@ -320,7 +308,7 @@ async function connectWallet(){
   }catch(e){
     // user rejecting the popup is a normal outcome, not an error worth shouting
     const msg = String(e.message || e);
-    if(!/user rejected|declined/i.test(msg)) showErr(msg);
+    if(!/user rejected|denied|4001/i.test(msg)) showErr(msg);
     paintWallet();
   }finally{
     if(sb){ sb.disabled = false; sb.textContent = 'connect wallet'; }
@@ -332,7 +320,7 @@ async function disconnectWallet(){
     await fetch('/api/auth/logout', { method:'POST', headers: sessionHeaders() });
   }catch(_){}
   try{ sessionStorage.removeItem('jct_session'); }catch(_){}
-  try{ getPhantom()?.disconnect(); }catch(_){}
+  // EVM wallets have no programmatic disconnect; forgetting the session is enough
   SESSION = null;
   WALLET  = null;
   paintWallet();
@@ -382,8 +370,8 @@ function showErr(msg){
    balance, and when that hits zero the agent stops. Nothing is charged
    silently and nothing runs on credit that isn't there.
 
-   Paying happens entirely in the wallet: Phantom builds and signs a normal
-   SOL transfer to the treasury address, and the server verifies on-chain
+   Paying happens entirely in the wallet: MetaMask builds and signs a normal
+   ETH transfer to the treasury address, and the server verifies on-chain
    that it actually arrived before crediting anything. The browser's claim
    about the amount is never trusted.                                       */
 
@@ -445,7 +433,7 @@ async function loadCredit(){
       note.textContent = 'Payments are not configured on this server yet.';
     }else{
       note.className = 'cnote';
-      note.textContent = `Paid in SOL to the treasury wallet. Credit is tied to your address and survives restarts — it does not expire.`;
+      note.textContent = `Paid in ETH to the treasury wallet. Credit is tied to your address and survives restarts — it does not expire.`;
     }
   }catch(_){
     panel.style.display = 'none';
@@ -454,64 +442,78 @@ async function loadCredit(){
 
 async function doTopup(){
   const btn = $('topupBtn');
-  const phantom = getPhantom();
+  const eth = getEthereum();
 
-  if(!phantom || !WALLET) return showErr('connect your wallet first.');
+  if(!eth || !WALLET) return showErr('connect your wallet first.');
   if(!CREDIT_INFO || !CREDIT_INFO.enabled) return showErr('payments are not available right now.');
+  if(!CREDIT_INFO.treasury || !CREDIT_INFO.price_eth){
+    return showErr('this server has no treasury or price set.');
+  }
 
   btn.disabled = true;
-  btn.textContent = 'building transaction…';
+  btn.textContent = 'preparing…';
 
   try{
-    // Phantom can build and send a transfer without us pulling in a Solana
-    // SDK — but it needs a serialized transaction, which does require the
-    // web3 library. Load it only at the moment someone actually pays.
-    if(!window.solanaWeb3){
-      await new Promise((ok, fail) => {
-        const sc = document.createElement('script');
-        sc.src = 'https://unpkg.com/@solana/web3.js@1/lib/index.iife.min.js';
-        sc.onload = ok;
-        sc.onerror = () => fail(new Error('could not load the Solana library'));
-        document.head.appendChild(sc);
-      });
+    // Make sure the wallet is on the chain the treasury lives on. If it isn't,
+    // ask it to switch — no point sending mainnet ETH to a Base treasury.
+    const wantChain = '0x' + Number(CREDIT_INFO.chain_id || 1).toString(16);
+    try{
+      const cur = await eth.request({ method: 'eth_chainId' });
+      if(cur !== wantChain){
+        btn.textContent = 'switch network…';
+        await eth.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: wantChain }],
+        });
+      }
+    }catch(sw){
+      // 4902 = chain not added to the wallet; anything else we surface plainly
+      if(sw && sw.code === 4902){
+        throw new Error('add that network to your wallet first, then retry');
+      }
+      throw sw;
     }
 
-    const web3 = window.solanaWeb3;
-    const conn = new web3.Connection(
-      CREDIT_INFO.rpc || 'https://api.mainnet-beta.solana.com', 'confirmed');
-
-    const from = new web3.PublicKey(WALLET.address);
-    const to   = new web3.PublicKey(CREDIT_INFO.treasury);
-    const lamports = Math.round(CREDIT_INFO.price_sol * 1e9);
-
-    const tx = new web3.Transaction().add(
-      web3.SystemProgram.transfer({ fromPubkey: from, toPubkey: to, lamports })
-    );
-    tx.feePayer = from;
-    tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
+    // native ETH transfer: value in wei, as a hex string. No SDK required —
+    // MetaMask builds, signs and broadcasts it.
+    const wei = BigInt(Math.round(CREDIT_INFO.price_eth * 1e18));
+    const valueHex = '0x' + wei.toString(16);
 
     btn.textContent = 'confirm in wallet…';
-    const signed = await phantom.signAndSendTransaction(tx);
-    const sig = signed.signature || signed;
-
-    btn.textContent = 'confirming on-chain…';
-    await conn.confirmTransaction(sig, 'confirmed');
-
-    // hand the signature over — the server checks the chain itself
-    btn.textContent = 'verifying…';
-    const r = await fetch('/api/credit/topup', {
-      method:'POST',
-      headers:{'Content-Type':'application/json', ...sessionHeaders()},
-      body: JSON.stringify({ signature: sig }),
+    const hash = await eth.request({
+      method: 'eth_sendTransaction',
+      params: [{
+        from:  WALLET.address,
+        to:    CREDIT_INFO.treasury,
+        value: valueHex,
+      }],
     });
-    const d = await r.json();
-    if(!r.ok) throw new Error(d.error || 'verification failed');
+
+    // hand the tx hash over — the server checks the chain itself before
+    // crediting anything, so a made-up hash gets nothing.
+    btn.textContent = 'verifying…';
+    // the tx needs a moment to be mined; retry a few times on "not found"
+    let d = null;
+    for(let attempt = 0; attempt < 12; attempt++){
+      const r = await fetch('/api/credit/topup', {
+        method:'POST',
+        headers:{'Content-Type':'application/json', ...sessionHeaders()},
+        body: JSON.stringify({ hash }),
+      });
+      d = await r.json();
+      if(r.ok) break;
+      // 404 = not confirmed yet; wait and try again. other errors are final.
+      if(r.status !== 404) throw new Error(d.error || 'verification failed');
+      btn.textContent = `confirming on-chain… (${attempt + 1})`;
+      await new Promise(res => setTimeout(res, 5000));
+    }
+    if(!d || !d.ok) throw new Error('transaction did not confirm in time — it may still credit shortly');
 
     $('err').classList.remove('on');
     await loadCredit();
   }catch(e){
     const msg = String(e.message || e);
-    if(!/user rejected|declined/i.test(msg)) showErr(msg);
+    if(!/user rejected|denied|4001/i.test(msg)) showErr(msg);
   }finally{
     btn.disabled = false;
     await loadCredit();
