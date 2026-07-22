@@ -75,6 +75,8 @@
   .row .rt{color:var(--line-2);font-size:10px;flex-shrink:0;letter-spacing:.03em;padding-top:1px}
   .row .rmid{flex:1;min-width:0}
   .row .who{color:var(--wht);font-size:11px}
+  .row .who .wholink{color:var(--wht);border-bottom:1px dotted var(--line-2)}
+  .row .who .wholink:hover{color:var(--grn);border-bottom-color:var(--grn)}
   .row .who .at{color:var(--dim)}
   .row .loc{color:var(--line-2);font-size:9px;letter-spacing:.06em;margin-left:6px;text-transform:uppercase}
   .row .msg{display:block;margin-top:1px;color:var(--mid);word-break:break-word}
@@ -282,7 +284,7 @@ function render(freshBatch){
       <span class="rt">${esc(e.t)}</span>
       <span class="ar">${cls === 'think' ? '›' : cls === 'err' ? '✕' : cls === 'warn' ? '▲' : '▸'}</span>
       <span class="rmid">
-        <span class="who">${esc(e.a)}${loc ? `<span class="loc">${esc(loc)}</span>` : ''}</span>
+        <span class="who"><a href="/agent?name=${encodeURIComponent(e.a)}" class="wholink">${esc(e.a)}</a>${loc ? `<span class="loc">${esc(loc)}</span>` : ''}</span>
         <span class="msg">${esc(e.x)}</span>
       </span>
     </div>`;
