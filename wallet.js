@@ -18,7 +18,13 @@
 (function(){
   "use strict";
 
-  const WC_PROVIDER_URL = 'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.23.10/dist/index.umd.js';
+  // NOTE ON THE VERSION: 2.14.0 is the last build whose UMD bundle is
+  // self-contained. From ~2.23 the UMD expects a dozen other globals
+  // (viem, lit, qrcode, valtio, bs58…) to already be on the page, which
+  // only works behind a bundler — loaded from a plain <script> it leaves
+  // EthereumProvider undefined. Do not bump this without checking that
+  // dist/index.umd.js still has no external `require(...)` calls.
+  const WC_PROVIDER_URL = 'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.14.0/dist/index.umd.js';
 
   // Live connection state, shared across the page.
   const J = window.JunctionWallet = {
@@ -56,12 +62,30 @@
     return wcLoading;
   }
 
+  // The UMD bundle registers itself under its package name. Look it up
+  // defensively: if the shape ever changes, fail with something a human can
+  // act on rather than "cannot read properties of undefined".
+  function findEthereumProvider(){
+    const direct = window['@walletconnect/ethereum-provider'];
+    if(direct && direct.EthereumProvider) return direct.EthereumProvider;
+    if(direct && typeof direct.init === 'function') return direct;   // exported bare
+    if(window.EthereumProvider && typeof window.EthereumProvider.init === 'function'){
+      return window.EthereumProvider;
+    }
+    return null;
+  }
+
   async function makeWCProvider(){
     const pid = window.JUNCTION_WC_PROJECT_ID;
-    if(!pid) throw new Error('WalletConnect is not configured on this page');
+    if(!pid || /^REPLACE_WITH/i.test(pid)){
+      throw new Error('WalletConnect projectId is not set on this page');
+    }
     await loadWC();
-    const EthereumProvider =
-      window['@walletconnect/ethereum-provider'].EthereumProvider;
+
+    const EthereumProvider = findEthereumProvider();
+    if(!EthereumProvider){
+      throw new Error('WalletConnect loaded but did not register — try reloading the page');
+    }
 
     // chain list: default to Ethereum + Base so mobile wallets can pick either.
     // The page can override via window.JUNCTION_WC_CHAINS = [1, 8453, ...].
@@ -205,5 +229,8 @@
   };
 
   J.hasInjected = function(){ return !!getInjected(); };
-  J.hasWalletConnect = function(){ return !!window.JUNCTION_WC_PROJECT_ID; };
+  J.hasWalletConnect = function(){
+    const pid = window.JUNCTION_WC_PROJECT_ID;
+    return !!pid && !/^REPLACE_WITH/i.test(pid);
+  };
 })();
