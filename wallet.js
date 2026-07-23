@@ -18,17 +18,25 @@
 (function(){
   "use strict";
 
-  // NOTE ON THE VERSION: 2.14.0 is the last build whose UMD bundle is
-  // self-contained. From ~2.23 the UMD expects a dozen other globals
-  // (viem, lit, qrcode, valtio, bs58…) to already be on the page, which
-  // only works behind a bundler — loaded from a plain <script> it leaves
-  // EthereumProvider undefined. Do not bump this without checking that
-  // dist/index.umd.js still has no external `require(...)` calls.
-  const WC_URLS = [
+  // HOW THIS IS LOADED, AND WHY:
+  // The UMD bundles are fragile in the browser — the wrapper assigns an empty
+  // global first and then runs the body, so if anything inside throws (it
+  // touches browser APIs like matchMedia early), you're left with a global
+  // that exists but is empty. That produces the maddening "loaded but did not
+  // register". So we prefer a real ES module from esm.sh, which resolves the
+  // package's bare imports for us and either imports cleanly or throws
+  // honestly. The UMD URLs stay as a last resort.
+  const WC_ESM_URLS = [
+    'https://esm.sh/@walletconnect/ethereum-provider@2.14.0',
+    'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.14.0/+esm',
+  ];
+  const WC_UMD_URLS = [
     'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.14.0/dist/index.umd.js',
     'https://unpkg.com/@walletconnect/ethereum-provider@2.14.0/dist/index.umd.js',
-    'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.13.3/dist/index.umd.js',
   ];
+
+  // Once we have it (from either route) we keep it here.
+  let WC_EthereumProvider = null;
 
   // Live connection state, shared across the page.
   const J = window.JunctionWallet = {
@@ -81,20 +89,38 @@
   }
 
   function loadWC(){
-    if(findEthereumProvider()) return Promise.resolve();
+    if(WC_EthereumProvider) return Promise.resolve();
     if(wcLoading) return wcLoading;
 
     wcLoading = (async () => {
       const problems = [];
-      for(const url of WC_URLS){
+
+      // 1) preferred: a real ES module
+      for(const url of WC_ESM_URLS){
+        try{
+          const mod = await import(/* webpackIgnore: true */ url);
+          const EP = mod.EthereumProvider || (mod.default && mod.default.EthereumProvider) || mod.default;
+          if(EP && typeof EP.init === 'function'){ WC_EthereumProvider = EP; return; }
+          problems.push('module had no EthereumProvider: ' + url);
+        }catch(e){
+          problems.push('esm failed (' + String(e.message || e).slice(0, 80) + '): ' + url);
+        }
+      }
+
+      // 2) fallback: the UMD globals
+      for(const url of WC_UMD_URLS){
         try{
           await injectScript(url);
-          if(await waitForGlobal(4000)) return;      // it registered — done
-          problems.push('loaded but did not register: ' + url);
+          if(await waitForGlobal(4000)){
+            WC_EthereumProvider = findEthereumProvider();
+            if(WC_EthereumProvider) return;
+          }
+          problems.push('umd loaded but did not register: ' + url);
         }catch(e){
           problems.push(String(e.message || e));
         }
       }
+
       wcLoading = null;    // allow a retry on the next attempt
       throw new Error('WalletConnect could not be loaded. ' + problems.join(' | '));
     })();
@@ -122,9 +148,9 @@
     }
     await loadWC();
 
-    const EthereumProvider = findEthereumProvider();
-    if(!EthereumProvider){
-      throw new Error('WalletConnect loaded but did not register — try reloading the page');
+    const EthereumProvider = WC_EthereumProvider || findEthereumProvider();
+    if(!EthereumProvider || typeof EthereumProvider.init !== 'function'){
+      throw new Error('WalletConnect loaded but exposed no provider — try reloading');
     }
 
     // chain list: default to Ethereum + Base so mobile wallets can pick either.
