@@ -24,7 +24,11 @@
   // only works behind a bundler — loaded from a plain <script> it leaves
   // EthereumProvider undefined. Do not bump this without checking that
   // dist/index.umd.js still has no external `require(...)` calls.
-  const WC_PROVIDER_URL = 'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.14.0/dist/index.umd.js';
+  const WC_URLS = [
+    'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.14.0/dist/index.umd.js',
+    'https://unpkg.com/@walletconnect/ethereum-provider@2.14.0/dist/index.umd.js',
+    'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.13.3/dist/index.umd.js',
+  ];
 
   // Live connection state, shared across the page.
   const J = window.JunctionWallet = {
@@ -49,16 +53,52 @@
   // Load the WalletConnect UMD bundle once, on demand — no point paying for
   // ~300KB of provider if the visitor uses MetaMask.
   let wcLoading = null;
-  function loadWC(){
-    if(window['@walletconnect/ethereum-provider']) return Promise.resolve();
-    if(wcLoading) return wcLoading;
-    wcLoading = new Promise((ok, fail) => {
+
+  function injectScript(src){
+    return new Promise((ok, fail) => {
       const sc = document.createElement('script');
-      sc.src = WC_PROVIDER_URL;
-      sc.onload = ok;
-      sc.onerror = () => fail(new Error('could not load WalletConnect'));
+      sc.src = src;
+      sc.async = true;
+      sc.crossOrigin = 'anonymous';
+      sc.onload  = () => ok();
+      sc.onerror = () => fail(new Error('network error loading ' + src));
       document.head.appendChild(sc);
     });
+  }
+
+  // Some CDNs answer 200 with something that isn't the bundle, and a script's
+  // onload fires either way. So don't trust onload — wait until the global is
+  // really there, and if it never arrives, move on to the next URL.
+  function waitForGlobal(ms){
+    const deadline = Date.now() + ms;
+    return new Promise(resolve => {
+      (function poll(){
+        if(findEthereumProvider()) return resolve(true);
+        if(Date.now() > deadline)  return resolve(false);
+        setTimeout(poll, 50);
+      })();
+    });
+  }
+
+  function loadWC(){
+    if(findEthereumProvider()) return Promise.resolve();
+    if(wcLoading) return wcLoading;
+
+    wcLoading = (async () => {
+      const problems = [];
+      for(const url of WC_URLS){
+        try{
+          await injectScript(url);
+          if(await waitForGlobal(4000)) return;      // it registered — done
+          problems.push('loaded but did not register: ' + url);
+        }catch(e){
+          problems.push(String(e.message || e));
+        }
+      }
+      wcLoading = null;    // allow a retry on the next attempt
+      throw new Error('WalletConnect could not be loaded. ' + problems.join(' | '));
+    })();
+
     return wcLoading;
   }
 
