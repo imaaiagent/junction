@@ -161,6 +161,27 @@ const $ = id => document.getElementById(id);
    phrases — anything that isn't one of those is treated as a thought.     */
 
 const POLL_MS = 4000;
+
+/* Diagnostic mode: open /feed?debug=1 to see exactly what this browser
+   receives from /api/world, printed on the page. Useful when the board and
+   the feed disagree — it settles whether the data or the rendering is at
+   fault, without needing devtools. */
+const DEBUG = new URLSearchParams(location.search).has('debug');
+function debugDump(label, obj){
+  if(!DEBUG) return;
+  let box = document.getElementById('dbg');
+  if(!box){
+    box = document.createElement('pre');
+    box.id = 'dbg';
+    box.style.cssText = 'white-space:pre-wrap;word-break:break-all;border:1px solid #ffb347;'
+      + 'color:#ffb347;background:#0c0c06;padding:12px;margin:16px 0;font-size:11px;'
+      + 'max-height:340px;overflow:auto;';
+    const log = document.getElementById('log');
+    log.parentNode.insertBefore(box, log);
+  }
+  const t = new Date().toLocaleTimeString();
+  box.textContent = `[${t}] ${label}\n` + JSON.stringify(obj, null, 1).slice(0, 4000);
+}
 const MAX_ROWS = 400;          // never let the DOM grow without bound
 let paused = false;
 let filter = 'all';
@@ -217,6 +238,17 @@ async function poll(){
     if(!r.ok) throw new Error('http ' + r.status);
     const d = await r.json();
 
+    if(DEBUG){
+      debugDump('GET /api/world OK', {
+        url: location.origin + '/api/world',
+        agents_count: (d.agents || []).length,
+        events_count: (d.events || []).length,
+        agents: (d.agents || []).map(a => ({ name: a.name, status: a.status, tl_len: (a.tl||[]).length })),
+        events_first3: (d.events || []).slice(0, 3),
+        world_tick: d.world && d.world.tick,
+      });
+    }
+
     // learn locations so a row can show where its agent sits
     (d.agents || []).forEach(a => { if(a.loc) agentLoc[a.name] = a.loc; });
     $('agN').textContent = (d.agents || []).length;
@@ -241,7 +273,10 @@ async function poll(){
 
     setLive(true);
     firstLoad = false;
-  }catch(_){
+  }catch(e){
+    // Normally we fail quietly and just show "reconnecting…" — but when
+    // debugging, swallowing the error is precisely what hides the cause.
+    if(DEBUG) debugDump('FETCH FAILED', { error: String(e && e.message || e) });
     setLive(false);
   }
   schedule();
