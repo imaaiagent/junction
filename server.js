@@ -108,7 +108,22 @@ function notFound(res){
 }
 function send(res, file, data, req){
   const type  = TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream';
-  let cache = file.endsWith('cases.json') ? 'no-store' : 'public, max-age=300';
+  // Caching policy, deliberately split:
+  //   • HTML is the entry point to everything. If a browser or proxy holds a
+  //     stale copy, a deploy silently doesn't take effect and you end up
+  //     debugging code that isn't running. Never cache it.
+  //   • Assets (js/css/svg/png) can be cached — but only briefly, because we
+  //     don't fingerprint filenames, so a long TTL has the same failure mode.
+  let cache;
+  if(file.endsWith('cases.json')){
+    cache = 'no-store';
+  }else if(/\.html?$/i.test(file)){
+    cache = 'no-store, must-revalidate';
+  }else if(/\.(js|css|svg|png|jpg|jpeg|ico|woff2?)$/i.test(file)){
+    cache = 'public, max-age=60';
+  }else{
+    cache = 'public, max-age=300';
+  }
 
   // agent.py ships with a placeholder host. Fill it in from the request so
   // the file someone downloads already points back here — whatever domain
