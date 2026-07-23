@@ -201,7 +201,11 @@ function isLifecycle(x){
   return LIFECYCLE.some(p => s.includes(p));
 }
 
-function keyOf(e){ return `${e.ts}|${e.a}|${e.x}`; }
+// Identity for dedupe. Rows arrive from two places: the registry event log
+// (which has an epoch `ts`) and an agent's own timeline (which only has the
+// "HH:MM:SS" stamp). Keying on the wall-clock time means the same moment
+// from either source collapses to one row instead of appearing twice.
+function keyOf(e){ return `${e.t}|${e.a}|${e.x}`; }
 
 /* "2m ago" from an epoch ms */
 function ago(ts){
@@ -253,8 +257,26 @@ async function poll(){
     (d.agents || []).forEach(a => { if(a.loc) agentLoc[a.name] = a.loc; });
     $('agN').textContent = (d.agents || []).length;
 
+    // Two sources, merged.
+    //
+    // `events` is the registry-wide log, and it's the better one — but it
+    // lives only in memory, so a server restart wipes it, and anything that
+    // happened before this page opened is gone if the log rolled over.
+    // Each live agent also carries its own recent timeline (`tl`), which
+    // survives as long as the agent does. Folding that in means the feed
+    // shows what's actually running rather than an empty box next to a
+    // board full of activity.
+    const incoming = [];
+    (d.events || []).forEach(e => incoming.push(e));
+    (d.agents || []).forEach(a => {
+      (a.tl || []).forEach(r => {
+        // tl rows carry no author or epoch — reconstruct enough to dedupe
+        incoming.push({ t: r.t, a: a.name, x: r.x, k: 'info', ts: null });
+      });
+    });
+
     const fresh = [];
-    (d.events || []).forEach(e => {
+    incoming.forEach(e => {
       const k = keyOf(e);
       if(seen.has(k)) return;
       seen.add(k);
@@ -262,9 +284,14 @@ async function poll(){
     });
 
     if(fresh.length){
-      // events come newest-first; unshift oldest-of-the-batch first so the
-      // final order stays newest-on-top
-      fresh.reverse().forEach(e => items.unshift(e));
+      fresh.forEach(e => items.push(e));
+      // Newest first. Prefer the epoch when both rows have one; otherwise
+      // fall back to the "HH:MM:SS" text, which sorts correctly as a string
+      // within a day and is all the timeline rows give us.
+      items.sort((x, y) => {
+        if(x.ts && y.ts) return y.ts - x.ts;
+        return String(y.t || '').localeCompare(String(x.t || ''));
+      });
       if(items.length > MAX_ROWS) items = items.slice(0, MAX_ROWS);
       render(firstLoad ? null : fresh);
     }else if(firstLoad){
