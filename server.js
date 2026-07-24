@@ -181,6 +181,12 @@ const crypto = require('crypto');
 // hand-rolled crypto would be reckless. Everything else stays built-in.
 const { verifyMessage, isAddress, getAddress } = require('viem');
 
+/* A short id for THIS process. If the host ever runs more than one replica,
+   each gets its own — which is the fastest way to spot that two requests to
+   the same domain were answered by different processes holding different
+   in-memory registries. */
+const INSTANCE_ID = Math.random().toString(36).slice(2, 8);
+
 const REG = {
   agents: new Map(),   // key -> agent record
   byId:   new Map(),   // public id -> key  (so /world never leaks keys)
@@ -477,6 +483,11 @@ function handleWorld(req, res){
     events: REG.events.slice(0, 80),
     incidents: REG.incidents.slice(0, 20),
     world: { ...REG.world, uptime: now - REG.started },
+    // Which process answered this. The registry lives in memory, so if the
+    // host runs more than one replica each has its own agents and its own
+    // event log — and two pages on the same domain can legitimately see
+    // different worlds. When that happens this id is the only visible clue.
+    instance: INSTANCE_ID,
   });
 }
 

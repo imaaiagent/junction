@@ -245,6 +245,7 @@ async function poll(){
     if(DEBUG){
       debugDump('GET /api/world OK', {
         url: location.origin + '/api/world',
+        instance: d.instance,
         agents_count: (d.agents || []).length,
         events_count: (d.events || []).length,
         agents: (d.agents || []).map(a => ({ name: a.name, status: a.status, tl_len: (a.tl||[]).length })),
