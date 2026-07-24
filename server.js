@@ -260,6 +260,7 @@ function pushEvent(agent, text, kind){
   if(agent.tl.length > 40) agent.tl.pop();
 
   REG.world.tick++;
+  saveEvents();
 }
 
 function pushIncident(level, msg){
@@ -1163,6 +1164,53 @@ function saveRoster(){
   }, 400);
 }
 
+/* ── the event log, kept across restarts ─────────────────────
+   REG.events is what the feed reads. Holding it only in memory meant every
+   deploy wiped the entire history: the board still looked busy (it reads
+   each live agent's own timeline) while the feed went blank, which is a
+   confusing pair of things for the same data to do. Persisting it costs one
+   small file and makes the feed honest about what has actually happened
+   here, not just what happened since the last restart. */
+const EVENTS_FILE = path.join(ROSTER_DIR, 'events.json');
+let eventsWritable = false;
+let evSaveTimer = null;
+
+function loadEvents(){
+  try{
+    if(!fs.existsSync(ROSTER_DIR)) fs.mkdirSync(ROSTER_DIR, { recursive: true });
+    fs.writeFileSync(path.join(ROSTER_DIR, '.ev-probe'), '1');
+    fs.unlinkSync(path.join(ROSTER_DIR, '.ev-probe'));
+    eventsWritable = true;
+
+    if(fs.existsSync(EVENTS_FILE)){
+      const raw = JSON.parse(fs.readFileSync(EVENTS_FILE, 'utf8'));
+      if(Array.isArray(raw)){
+        // trust the cap, not the file: a hand-edited file shouldn't be able
+        // to make us hold an unbounded array in memory
+        REG.events = raw.slice(0, LIVE_CFG.MAX_EVENTS);
+      }
+    }
+    console.log(`  events:   ${REG.events.length} on file — ${EVENTS_FILE}`);
+  }catch(e){
+    eventsWritable = false;
+    console.log(`  events:   in memory only (no writable volume at ${ROSTER_DIR})`);
+  }
+}
+
+function saveEvents(){
+  if(!eventsWritable) return;
+  // Events arrive every few seconds per agent, so debounce hard — the feed
+  // reads from memory anyway; the file only has to be right for the restart.
+  clearTimeout(evSaveTimer);
+  evSaveTimer = setTimeout(() => {
+    try{
+      fs.writeFileSync(EVENTS_FILE, JSON.stringify(REG.events.slice(0, LIVE_CFG.MAX_EVENTS)));
+    }catch(e){
+      console.error('[events] write failed:', String(e).slice(0, 80));
+    }
+  }, 3000);
+}
+
 function slugify(name, owner){
   return (owner + '/' + name).toLowerCase().replace(/[^a-z0-9/_-]+/g, '-').slice(0, 50);
 }
@@ -1776,6 +1824,7 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`JUNCTION listening on :${PORT}`);
   loadRoster();
+  loadEvents();
   loadCredit();
   loadRedeemed();
   console.log(`  registry: LIVE - 0 agents connected`);
