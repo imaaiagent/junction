@@ -238,6 +238,12 @@ function passesFilter(cls){
 
 async function poll(){
   if(paused) return schedule();
+  // Prove the script is alive. If the page sits on "starting…" forever, the
+  // fetch never came back; if it never even shows, the script died earlier.
+  if(firstLoad){
+    const lt = $('liveTag');
+    if(lt) lt.textContent = 'starting…';
+  }
   try{
     const r = await fetch('/api/world', { cache:'no-store' });
     if(!r.ok) throw new Error('http ' + r.status);
@@ -366,23 +372,35 @@ function render(freshBatch){
   }).join('');
 }
 
-/* ── controls ──────────────────────────────────────────────── */
-[['fAll','all'],['fThink','think'],['fLife','lifecycle']].forEach(([id, f]) => {
-  $(id).onclick = () => {
-    filter = f;
-    ['fAll','fThink','fLife'].forEach(x => $(x).classList.toggle('on', x === id));
-    render(null);
+/* ── controls ──────────────────────────────────────────────────
+   Wiring is defensive on purpose. These run before the first poll, so a
+   single missing element used to throw here and kill the whole script —
+   leaving a page that fetched nothing and reported nothing, which looks
+   exactly like "no data" and is impossible to tell apart from it. */
+try{
+  [['fAll','all'],['fThink','think'],['fLife','lifecycle']].forEach(([id, f]) => {
+    const el = $(id);
+    if(!el) return;
+    el.onclick = () => {
+      filter = f;
+      ['fAll','fThink','fLife'].forEach(x => { const b = $(x); if(b) b.classList.toggle('on', x === id); });
+      render(null);
+    };
+  });
+
+  const pb = $('pauseBtn');
+  if(pb) pb.onclick = () => {
+    paused = !paused;
+    pb.textContent = paused ? '▶ resume' : '▮▮ pause';
+    pb.classList.toggle('on', paused);
+    const bl = $('blip');
+    setLive(!(bl && bl.classList.contains('off')));
+    if(!paused) poll();           // resume immediately, don't wait a full cycle
   };
-});
+}catch(e){
+  // Never let control wiring stop the feed from loading.
+  console.error('[feed] control wiring failed:', e);
+}
 
-$('pauseBtn').onclick = () => {
-  paused = !paused;
-  $('pauseBtn').textContent = paused ? '▶ resume' : '▮▮ pause';
-  $('pauseBtn').classList.toggle('on', paused);
-  setLive(!$('blip').classList.contains('off'));
-  if(!paused) poll();           // resume immediately, don't wait a full cycle
-};
-
-// keep the "x ago" fresh even between polls — cheap, once a second isn't
-// needed since we show wall-clock time, not relative, in the row itself
+// Start polling no matter what happened above.
 poll();
