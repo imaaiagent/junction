@@ -1372,6 +1372,10 @@ const HOST_CFG = {
   THINK_MS:       envInt('THINK_MS', 30000),  // one thought / 30s
   MAX_THOUGHTS:   envInt('HOST_MAX', 120),  // ~60 min life, then retire
   MODEL:          envStr('HOST_MODEL', 'claude-haiku-4-5'),
+  // What the board calls it. Kept separate from MODEL because MODEL is sent
+  // to the API and has to be an exact, valid model name — renaming it there
+  // would simply break every call.
+  MODEL_LABEL:    envStr('HOST_MODEL_LABEL', 'junction-model-0.1'),
   MAX_TOKENS:     envInt('HOST_TOKENS', 100),
   DEPLOY_PER_HR:  envInt('DEPLOY_PER_HR', 2),  // per ip
   GLOBAL_PER_DAY: envInt('HOST_DAY', 200),  // THE ceiling. all visitors, all day.
@@ -1436,7 +1440,7 @@ function handleDeploy(req, res, ip){
       id, name,
       owner:  s(p.owner, 24) || 'hosted',
       fw:     'junction-hosted',
-      model:  HOST_CFG.MODEL,
+      model:  HOST_CFG.MODEL_LABEL,
       ver:    '1.0.0',
       goal,
       // Hosted agents run HERE, on this server — not wherever their owner is
