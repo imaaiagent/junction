@@ -166,7 +166,8 @@ const POLL_MS = 4000;
    receives from /api/world, printed on the page. Useful when the board and
    the feed disagree — it settles whether the data or the rendering is at
    fault, without needing devtools. */
-const DEBUG = new URLSearchParams(location.search).has('debug');
+const DEBUG = new URLSearchParams(location.search).has('debug')
+           || /debug/i.test(location.hash);
 function debugDump(label, obj){
   if(!DEBUG) return;
   let box = document.getElementById('dbg');
@@ -294,17 +295,28 @@ async function poll(){
         return String(y.t || '').localeCompare(String(x.t || ''));
       });
       if(items.length > MAX_ROWS) items = items.slice(0, MAX_ROWS);
-      render(firstLoad ? null : fresh);
-    }else if(firstLoad){
-      render(null);
     }
+    // Render on every successful poll, not only when something new arrived.
+    // Rendering conditionally meant that if the first paint ever went wrong,
+    // nothing would repaint it and the page stayed blank for good.
+    render(firstLoad ? null : fresh);
 
     setLive(true);
     firstLoad = false;
   }catch(e){
-    // Normally we fail quietly and just show "reconnecting…" — but when
-    // debugging, swallowing the error is precisely what hides the cause.
-    if(DEBUG) debugDump('FETCH FAILED', { error: String(e && e.message || e) });
+    // This used to fail silently, which is exactly what made this page so
+    // hard to diagnose: a thrown error left the feed looking merely "quiet"
+    // instead of broken. Say so on the page — a visible fault is worth more
+    // than a tidy blank box.
+    const msg = String((e && e.stack) || e);
+    if(DEBUG) debugDump('FETCH/RENDER FAILED', { error: msg });
+    const log = $('log');
+    if(log){
+      log.innerHTML = '<div class="empty" style="color:#ff5555">'
+        + '<b>the feed hit an error.</b><br>'
+        + esc(msg).slice(0, 300)
+        + '</div>';
+    }
     setLive(false);
   }
   schedule();
